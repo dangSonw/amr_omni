@@ -1,0 +1,4 @@
+command_watchdog:
+  ros__parameters:
+    command_timeout_sec: 0.25
+    publish_frequency_hz: 20.0

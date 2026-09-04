@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Exact sensor links and placements from tests/ros2_omni_robot_sim/urdf/4w. -->
+  <xacro:macro name="sensors" params="parent">
+    <xacro:unless value="$(arg headless)">
+      <link name="camera_link_1">
+        <visual><geometry><mesh filename="package://omni_description/meshes/4w/camera.stl"/></geometry>
+          <material name="black"><color rgba="0 0 0 1"/></material></visual>
+        <collision><geometry><mesh filename="package://omni_description/meshes/4w/camera.stl"/></geometry></collision>
+        <inertial><mass value="0.5"/><inertia ixx="0.005" ixy="0" ixz="0" iyy="0.005" iyz="0" izz="0.005"/></inertial>
+      </link>
+      <joint name="camera_joint_1" type="fixed"><parent link="${parent}"/><child link="camera_link_1"/>
+        <origin xyz="0.1035 -0.0000 0.0630" rpy="0 0 0"/><axis xyz="0 0 1"/></joint>
+      <gazebo reference="camera_link_1">
+        <sensor type="depth" name="depth_camera_1"><gz_frame_id>camera_link_1</gz_frame_id>
+          <pose>-0.005 0 0 0 0 0</pose><topic>depth</topic><update_rate>10.0</update_rate>
+          <camera name="camera_1"><camera_info_topic>depth/camera_info</camera_info_topic><pose>0 0 0 0 0 0</pose>
+            <horizontal_fov>1.5</horizontal_fov><image><width>320</width><height>240</height></image>
+            <clip><near>0.05</near><far>300</far></clip><noise><type>gaussian</type><mean>0.0</mean><stddev>0.007</stddev></noise>
+          </camera>
+        </sensor>
+        <sensor name="camera_1" type="camera"><gz_frame_id>camera_link_1</gz_frame_id>
+          <pose>-0.005 0 0 0 0 0</pose><always_on>true</always_on><update_rate>30</update_rate><visualize>true</visualize><topic>camera</topic>
+          <camera><camera_info_topic>/camera_info</camera_info_topic><horizontal_fov>1.5</horizontal_fov>
+            <image><width>640</width><height>480</height></image><clip><near>0.01</near><far>300</far></clip>
+          </camera>
+        </sensor>
+      </gazebo>
+    </xacro:unless>
+
+    <link name="lidar_link_1"><visual><geometry><cylinder radius="0.02" length="0.02"/></geometry>
+      <material name="blue"><color rgba="0.1 0 0.35 1"/></material></visual></link>
+    <joint name="lidar_joint_1" type="fixed"><parent link="${parent}"/><child link="lidar_link_1"/>
+      <origin xyz="0.0000 0.0000 0.1010" rpy="0 0 0"/><axis xyz="0 0 1"/></joint>
+    <gazebo reference="lidar_link_1">
+      <!-- Gazebo Harmonic updates lidar through the rendering sensor system;
+           keep the supported GPU sensor in both visual and headless profiles. -->
+      <sensor name="gpu_lidar" type="gpu_lidar"><topic>/scan</topic><update_rate>5</update_rate><gz_frame_id>lidar_link_1</gz_frame_id>
+        <lidar><scan><horizontal><samples>360</samples><resolution>1</resolution><min_angle>-3.1415</min_angle><max_angle>3.1415</max_angle></horizontal></scan>
+          <range><min>0.08</min><max>10.0</max><resolution>0.01</resolution></range><noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+        </lidar><always_on>true</always_on><visualize>true</visualize>
+      </sensor>
+    </gazebo>
+
+    <link name="imu_link_1"><inertial><origin xyz="0 0 0"/><mass value="0.005"/>
+      <inertia ixx="1.67e-8" ixy="0" ixz="0" iyy="1.67e-8" iyz="0" izz="1.67e-8"/></inertial></link>
+    <joint name="imu_joint_1" type="fixed"><parent link="${parent}"/><child link="imu_link_1"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/></joint>
+    <gazebo reference="imu_link_1"><sensor type="imu" name="imu_sensor"><topic>/imu</topic><update_rate>50</update_rate><always_on>true</always_on><visualize>true</visualize></sensor></gazebo>
+  </xacro:macro>
+</robot>

@@ -1,0 +1,5 @@
+Source repository: https://github.com/DietrichGebert/ponytail
+Pinned commit: 2ed6c52c9d7e5e56942508591085fd45dea277d3
+License: MIT
+Installed project-locally as the six SKILL.md files under .claude/skills/.
+Plugin hooks, MCP, lifecycle scripts, and global configuration were intentionally not installed.

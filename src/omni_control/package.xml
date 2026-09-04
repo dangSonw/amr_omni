@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>omni_control</name>
+  <version>0.1.0</version>
+  <description>ROS-agnostic four-wheel omni kinematics library.</description>
+  <maintainer email="maintainer@example.com">AMR Omni Maintainers</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <test_depend>python3-pytest</test_depend>
+  <exec_depend>python3</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

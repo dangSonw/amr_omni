@@ -1,0 +1,5 @@
+Source repository: https://github.com/affaan-m/ECC
+Pinned commit: ca185ef5f7667078a1e70a763bd3a9c71c48acf0
+License: MIT
+Installation scope: project-local /home/sonev/amr_omni/.claude/skills
+Installed content: skill directories only. Plugin metadata, hooks, commands, rules, MCP configuration, installers, and runtime dependencies were not executed or installed.

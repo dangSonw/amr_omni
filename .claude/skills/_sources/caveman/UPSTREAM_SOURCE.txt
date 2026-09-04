@@ -1,0 +1,6 @@
+Source repository: https://github.com/JuliusBrussee/caveman
+Pinned commit: df2ccd85c94ec3c8289cb62ac020d241ccfb0c60
+License: MIT for the Caveman skill/adoption surface
+Installation scope: project-local /home/sonev/amr_omni/.claude/skills
+Installed content: skills/ directories only, including skill-local resources.
+Plugin metadata, hooks, MCP, CLI/runtime, installers, and global configuration were not installed or executed.

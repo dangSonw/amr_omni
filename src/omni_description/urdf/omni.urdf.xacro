@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<robot name="simple_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Structural equivalent of tests/ros2_omni_robot_sim/urdf/4w/main.urdf.xacro.
+       Package URIs are localised to omni_description; Harmonic joint plugins
+       remain below because the workspace does not use ign_ros2_control. -->
+  <xacro:include filename="$(find omni_description)/urdf/chassis.xacro"/>
+  <xacro:include filename="$(find omni_description)/urdf/wheels.xacro"/>
+  <xacro:include filename="$(find omni_description)/urdf/sensors.xacro"/>
+  <xacro:arg name="headless" default="false"/>
+  <link name="base_footprint"/>
+  <xacro:chassis parent="base_footprint"/>
+  <xacro:four_wheels parent="base_link"/>
+  <xacro:sensors parent="base_link"/>
+
+  <!-- Gazebo Harmonic equivalent of the upstream control integration. -->
+  <gazebo>
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>/world/amr_lab/model/amr_omni/joint_state</topic>
+      <update_rate>50</update_rate>
+      <joint_name>omni_wheel_joint_1</joint_name>
+      <joint_name>omni_wheel_joint_2</joint_name>
+      <joint_name>omni_wheel_joint_3</joint_name>
+      <joint_name>omni_wheel_joint_4</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-joint-controller-system"
+            name="gz::sim::systems::JointController">
+      <joint_name>omni_wheel_joint_1</joint_name>
+      <topic>/model/amr_omni/joint/omni_wheel_joint_1/cmd_vel</topic>
+    </plugin>
+    <plugin filename="gz-sim-joint-controller-system"
+            name="gz::sim::systems::JointController">
+      <joint_name>omni_wheel_joint_2</joint_name>
+      <topic>/model/amr_omni/joint/omni_wheel_joint_2/cmd_vel</topic>
+    </plugin>
+    <plugin filename="gz-sim-joint-controller-system"
+            name="gz::sim::systems::JointController">
+      <joint_name>omni_wheel_joint_3</joint_name>
+      <topic>/model/amr_omni/joint/omni_wheel_joint_3/cmd_vel</topic>
+    </plugin>
+    <plugin filename="gz-sim-joint-controller-system"
+            name="gz::sim::systems::JointController">
+      <joint_name>omni_wheel_joint_4</joint_name>
+      <topic>/model/amr_omni/joint/omni_wheel_joint_4/cmd_vel</topic>
+    </plugin>
+  </gazebo>
+</robot>

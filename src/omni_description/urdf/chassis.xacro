@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Exact 4w base geometry from tests/ros2_omni_robot_sim. -->
+  <xacro:macro name="chassis" params="parent">
+    <link name="base_link">
+      <visual><geometry>
+        <mesh filename="package://omni_description/meshes/4w/base_link.dae"/>
+      </geometry></visual>
+      <collision><geometry>
+        <mesh filename="package://omni_description/meshes/4w/base_link.stl"/>
+      </geometry></collision>
+      <inertial>
+        <mass value="3.0"/>
+        <inertia ixx="0.9" ixy="0.0" ixz="0.0" iyy="0.9" iyz="0.0" izz="0.01"/>
+      </inertial>
+    </link>
+    <joint name="base_joint" type="fixed">
+      <parent link="${parent}"/><child link="base_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+</robot>

@@ -12,7 +12,7 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
   const totalCount = streams?.length ?? 0;
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex flex-col rounded border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       {/* Section Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
@@ -30,7 +30,7 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
       </div>
 
       {/* Stream Architecture Diagram / Topology */}
-      <div className="my-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-slate-800/80 dark:bg-slate-800/40">
+      <div className="my-3 rounded-sm border border-slate-200/80 bg-slate-50/70 p-3 dark:border-slate-800/80 dark:bg-slate-800/40">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           {/* Node 1: Jetson */}
           <div className="flex flex-col items-center justify-center rounded-lg border border-blue-200 bg-blue-50/50 p-2.5 dark:border-blue-900/60 dark:bg-blue-950/30">

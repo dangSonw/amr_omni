@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **arm_omni** (562 symbols, 957 relationships, 10 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **amr_omni** (4881 symbols, 11670 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -25,10 +25,10 @@ This project is indexed by GitNexus as **arm_omni** (562 symbols, 957 relationsh
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/arm_omni/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/arm_omni/clusters` | All functional areas |
-| `gitnexus://repo/arm_omni/processes` | All execution flows |
-| `gitnexus://repo/arm_omni/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/amr_omni/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/amr_omni/clusters` | All functional areas |
+| `gitnexus://repo/amr_omni/processes` | All execution flows |
+| `gitnexus://repo/amr_omni/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

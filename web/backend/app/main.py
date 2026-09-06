@@ -44,6 +44,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    # Ngăn trình duyệt cache file index.html hoặc các route SPA để luôn tải bản mới nhất sau khi build
+    if request.url.path in ("/", "/index.html", "/index.txt") or request.url.path.endswith(".html"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Đăng ký các router
 app.include_router(api.router)
 app.include_router(ws.router)

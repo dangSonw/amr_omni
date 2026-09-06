@@ -9,6 +9,7 @@ struct RobotState {
     FirmwareSettings settings;
     float target_wheel_speed_rad_s[kWheelCount];
     float measured_wheel_speed_rad_s[kWheelCount];
+    float raw_wheel_speed_rad_s[kWheelCount];
     float motor_output[kWheelCount];
     int32_t encoder_counts[kWheelCount];
     TwistCommand command_twist;
@@ -21,6 +22,7 @@ struct RobotState {
     bool estop_active;
     bool command_valid;
     bool imu_fault;
+    bool motor_fault;
 };
 
 void initialize_robot_state(RobotState &state);

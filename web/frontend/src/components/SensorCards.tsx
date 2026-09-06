@@ -13,7 +13,7 @@ export function SensorCards({ imu, odom, onResetOdom }: SensorCardsProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* IMU Card */}
-      <div className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col justify-between rounded border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Compass className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
@@ -26,19 +26,19 @@ export function SensorCards({ imu, odom, onResetOdom }: SensorCardsProps) {
 
         {/* IMU Orientation & Angular Rates */}
         <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+          <div className="rounded-sm bg-slate-50 p-2.5 dark:bg-slate-800/60">
             <span className="text-slate-400 font-mono text-[10px]">ROLL</span>
             <div className="mt-0.5 text-base font-bold text-slate-900 dark:text-white font-mono">
               {imu?.roll_deg?.toFixed(1) ?? 0}°
             </div>
           </div>
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+          <div className="rounded-sm bg-slate-50 p-2.5 dark:bg-slate-800/60">
             <span className="text-slate-400 font-mono text-[10px]">PITCH</span>
             <div className="mt-0.5 text-base font-bold text-slate-900 dark:text-white font-mono">
               {imu?.pitch_deg?.toFixed(1) ?? 0}°
             </div>
           </div>
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+          <div className="rounded-sm bg-slate-50 p-2.5 dark:bg-slate-800/60">
             <span className="text-slate-400 font-mono text-[10px]">YAW (HƯỚNG)</span>
             <div className="mt-0.5 text-base font-bold text-cyan-600 dark:text-cyan-400 font-mono">
               {imu?.yaw_deg?.toFixed(1) ?? 0}°
@@ -64,7 +64,7 @@ export function SensorCards({ imu, odom, onResetOdom }: SensorCardsProps) {
       </div>
 
       {/* Odometry Card */}
-      <div className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col justify-between rounded border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Navigation2 className="h-5 w-5 text-brand-600 dark:text-brand-400" />
@@ -84,19 +84,19 @@ export function SensorCards({ imu, odom, onResetOdom }: SensorCardsProps) {
 
         {/* Odometry Coordinates */}
         <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+          <div className="rounded-sm bg-slate-50 p-2.5 dark:bg-slate-800/60">
             <span className="text-slate-400 font-mono text-[10px]">TỌA ĐỘ X</span>
             <div className="mt-0.5 text-base font-bold text-slate-900 dark:text-white font-mono">
               {odom?.x?.toFixed(2) ?? 0} m
             </div>
           </div>
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+          <div className="rounded-sm bg-slate-50 p-2.5 dark:bg-slate-800/60">
             <span className="text-slate-400 font-mono text-[10px]">TỌA ĐỘ Y</span>
             <div className="mt-0.5 text-base font-bold text-slate-900 dark:text-white font-mono">
               {odom?.y?.toFixed(2) ?? 0} m
             </div>
           </div>
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+          <div className="rounded-sm bg-slate-50 p-2.5 dark:bg-slate-800/60">
             <span className="text-slate-400 font-mono text-[10px]">GÓC THETA</span>
             <div className="mt-0.5 text-base font-bold text-brand-600 dark:text-brand-400 font-mono">
               {(((odom?.theta_rad ?? 0) * 180) / Math.PI).toFixed(1)}°

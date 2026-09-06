@@ -16,7 +16,7 @@ RENODE_DURATION=""
 INTERACTIVE=false
 DRY_RUN=false
 SKIP_BUILD_CHECK=false
-LAUNCH_WEB=false
+LAUNCH_WEB=true
 WEB_PORT=8000
 ROS_LAUNCH_ARGS=()
 GAZEBO_COMMAND=()
@@ -36,8 +36,8 @@ Options:
   --headless                 Start Gazebo server with off-screen rendering
   --use-sim-time BOOL        ROS use_sim_time value (default: true)
   --duration SEC             Stop the selected process after SEC seconds
-  --web                      Start the FastAPI web control/monitoring backend
-  --no-web                   Do not start the web interface (default)
+  --web                      Start the FastAPI web control/monitoring backend (default)
+  --no-web, --noweb          Do not start the web interface
   --web-port PORT            Port for web interface (default: 8000)
   --board NAME               Renode board shortcut (default: stm32f4_discovery)
   --renode-script PATH       Renode .resc file; overrides --board
@@ -69,6 +69,13 @@ die() {
 
 info() {
   echo "[INFO] $*"
+}
+
+cleanup_web() {
+  if [[ -n "${WEB_PID:-}" ]]; then
+    kill -INT "$WEB_PID" 2>/dev/null || true
+    wait "$WEB_PID" 2>/dev/null || true
+  fi
 }
 
 resolve_path() {
@@ -191,6 +198,8 @@ build_gazebo_command() {
       "web_script:=${ROOT_DIR}/web/backend/run_backend.py"
       "python_bin:=${py_bin}"
     )
+  else
+    GAZEBO_COMMAND+=("web:=false")
   fi
   GAZEBO_COMMAND+=("${ROS_LAUNCH_ARGS[@]}")
 }
@@ -207,6 +216,10 @@ run_gazebo() {
   fi
   build_gazebo_command
   info 'starting ROS 2 Gazebo simulation'
+  if [[ "$LAUNCH_WEB" == true ]]; then
+    info "Web interface enabled: http://localhost:${WEB_PORT}"
+    info "Mẹo: Mở trình duyệt và nhấn Ctrl+Shift+R để tải giao diện mới nhất!"
+  fi
   if [[ -n "$DURATION" ]]; then
     if [[ "$DRY_RUN" == true ]]; then
       run_command timeout --signal=INT --kill-after=10 "${DURATION}s" "${GAZEBO_COMMAND[@]}"
@@ -314,7 +327,7 @@ while [[ $# -gt 0 ]]; do
       LAUNCH_WEB=true
       shift
       ;;
-    --no-web)
+    --no-web|--noweb)
       LAUNCH_WEB=false
       shift
       ;;

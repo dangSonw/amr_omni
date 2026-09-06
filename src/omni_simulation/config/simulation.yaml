@@ -24,11 +24,10 @@ stm32_simulator:
       - /model/amr_omni/joint/omni_wheel_joint_2/cmd_vel
       - /model/amr_omni/joint/omni_wheel_joint_3/cmd_vel
       - /model/amr_omni/joint/omni_wheel_joint_4/cmd_vel
-    odom_topic: odom
-    imu_output_topic: imu/data_raw
-    wheel_state_topic: wheel_state
-    diagnostics_topic: diagnostics
+    odom_topic: wheel/odom
+    imu_output_topic: imu/data
     status_topic: status
+    publish_tf: false
     odom_frame: odom
     base_frame: base_link
     imu_frame: imu_link

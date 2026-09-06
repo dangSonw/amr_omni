@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>omni_bringup_ros1</name>
+  <version>0.1.0</version>
+  <description>ROS 1 Melodic bringup package for Jetson Nano hardware runtime.</description>
+  <maintainer email="maintainer@example.com">AMR Omni Maintainers</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>roslaunch</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>tf</exec_depend>
+
+  <export>
+  </export>
+</package>
+

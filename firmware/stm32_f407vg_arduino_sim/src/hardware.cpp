@@ -29,6 +29,11 @@ const int8_t kEncoderSigns[kWheelCount] = {1, 1, 1, 1};
 const int8_t kMotorSigns[kWheelCount] = {1, 1, 1, 1};
 const uint8_t kEstopPin = PD0;
 const uint8_t kStatusLedPin = LED_BUILTIN;
+const uint8_t kMotorFaultPin = PE0;
+const uint8_t kBuzzerPin = PD12;
+
+static FirmwareSettings s_nvram_settings;
+static bool s_nvram_saved = false;
 
 void update_encoder_0() {
     encoder_counts[0] += digitalRead(kEncoderBPins[0]) ? 1 : -1;
@@ -53,6 +58,9 @@ namespace RobotHardware {
 void initialize() {
     pinMode(kEstopPin, INPUT_PULLUP);
     pinMode(kStatusLedPin, OUTPUT);
+    pinMode(kMotorFaultPin, INPUT_PULLUP);
+    pinMode(kBuzzerPin, OUTPUT);
+    digitalWrite(kBuzzerPin, LOW);
     for (uint8_t index = 0U; index < kWheelCount; ++index) {
         pinMode(kMotorDirectionPins[index], OUTPUT);
         pinMode(kMotorPwmPins[index], OUTPUT);
@@ -190,6 +198,58 @@ bool read_estop() {
 #else
     return digitalRead(kEstopPin) == LOW;
 #endif
+}
+
+bool read_motor_fault() {
+#ifdef STM32_RENODE_SIM
+    return false;
+#else
+    return digitalRead(kMotorFaultPin) == LOW;
+#endif
+}
+
+
+void init_watchdog() {
+#if !defined(STM32_RENODE_SIM) && defined(IWDG)
+    IWDG->KR = 0x5555;
+    IWDG->PR = 0x04;
+    IWDG->RLR = 0x0FFF;
+    IWDG->KR = 0xCCCC;
+#endif
+}
+
+void feed_watchdog() {
+#if !defined(STM32_RENODE_SIM) && defined(IWDG)
+    IWDG->KR = 0xAAAA;
+#endif
+}
+
+void set_status_indicators(bool estop, bool fault, bool warning) {
+    if (estop || fault) {
+        digitalWrite(kStatusLedPin, HIGH);
+#ifndef STM32_RENODE_SIM
+        digitalWrite(kBuzzerPin, HIGH);
+#endif
+    } else {
+        digitalWrite(kStatusLedPin, warning ? HIGH : LOW);
+#ifndef STM32_RENODE_SIM
+        digitalWrite(kBuzzerPin, LOW);
+#endif
+    }
+}
+
+bool save_settings_nvram(const FirmwareSettings &settings) {
+    s_nvram_settings = settings;
+    s_nvram_saved = true;
+    return true;
+}
+
+bool load_settings_nvram(FirmwareSettings &settings) {
+    if (!s_nvram_saved) {
+        return false;
+    }
+    settings = s_nvram_settings;
+    return true;
 }
 
 uint32_t now_ms() {

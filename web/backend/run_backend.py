@@ -11,9 +11,9 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Cổng lắng nghe (mặc định: 8000)")
     parser.add_argument(
         "--mode",
-        choices=["auto", "ros2", "ros1", "mock"],
+        choices=["auto", "ros2", "ros1"],
         default="auto",
-        help="Chế độ kết nối robot: auto, ros2, ros1, mock (mặc định: auto)",
+        help="Chế độ kết nối robot: auto, ros2, ros1 (mặc định: auto)",
     )
     parser.add_argument("--reload", action="store_true", help="Bật auto-reload khi phát triển")
     args = parser.parse_args()
@@ -54,7 +54,7 @@ def main():
         if args.mode == "ros2":
             print(f"⚠️ Cảnh báo: rclpy không import được ({e}). Hãy đảm bảo đã source /opt/ros/jazzy/setup.bash")
         else:
-            print(f"ℹ️ rclpy không khả dụng, sử dụng chế độ Mock.")
+            print(f"ℹ️ rclpy không khả dụng trong môi trường hiện tại.")
 
     print(f"==================================================")
 

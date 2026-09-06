@@ -1,0 +1,31 @@
+<launch>
+  <!-- Tham số cấu hình thiết bị -->
+  <arg name="mcu_port" default="/dev/amr_mcu" doc="Cổng serial kết nối STM32" />
+  <arg name="mcu_baud" default="115200" />
+  <arg name="lidar_port" default="/dev/amr_lidar" doc="Cổng serial kết nối RPLiDAR" />
+  <arg name="lidar_baud" default="115200" />
+  <arg name="enable_camera" default="true" doc="Khởi chạy camera CSI/USB" />
+
+  <!-- TF Static Transforms -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_laser_tf"
+        args="0.10 0 0.15 0 0 0 base_link laser" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_imu_tf"
+        args="0 0 0.05 0 0 0 base_link imu_link" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_camera_tf"
+        args="0.12 0 0.12 0 0 0 base_link camera_link" />
+
+  <!-- RPLiDAR Driver (A1/A2) -->
+  <node name="rplidar_node" pkg="rplidar_ros" type="rplidarNode" output="screen">
+    <param name="serial_port" type="string" value="$(arg lidar_port)" />
+    <param name="serial_baudrate" type="int" value="$(arg lidar_baud)" />
+    <param name="frame_id" type="string" value="laser" />
+    <param name="inverted" type="bool" value="false" />
+    <param name="angle_compensate" type="bool" value="true" />
+  </node>
+
+  <!-- Rosbridge WebSocket Server cho Web Dashboard kết nối trực tiếp -->
+  <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+    <arg name="port" value="9090" />
+  </include>
+</launch>
+

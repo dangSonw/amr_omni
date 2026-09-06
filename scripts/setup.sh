@@ -104,8 +104,18 @@ check_ros() {
   # shellcheck disable=SC1090
   source "$setup_file"
   set -u
-  if [[ "${ROS_VERSION:-}" != 2 || "${ROS_DISTRO:-}" != "$ROS_DISTRO" ]]; then
-    fail "expected ROS 2 ${ROS_DISTRO} after sourcing ${setup_file}"
+  local expected_version=2
+  if [[ "$ROS_DISTRO" == melodic || "$ROS_DISTRO" == noetic ]]; then
+    expected_version=1
+  fi
+  if [[ "${ROS_VERSION:-}" != "$expected_version" || "${ROS_DISTRO:-}" != "$ROS_DISTRO" ]]; then
+    fail "expected ROS ${expected_version} ${ROS_DISTRO} after sourcing ${setup_file}"
+    return 0
+  fi
+
+  if [[ "$expected_version" == 1 ]]; then
+    check_command true roscore
+    check_command true xacro
     return 0
   fi
 

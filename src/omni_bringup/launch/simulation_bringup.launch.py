@@ -31,34 +31,54 @@ def generate_launch_description():
 
     web_enabled = LaunchConfiguration('web')
     web_port = LaunchConfiguration('web_port')
+    localization_enabled = LaunchConfiguration('localization')
+    slam_enabled = LaunchConfiguration('slam')
+    nav_enabled = LaunchConfiguration('nav')
+    perception_enabled = LaunchConfiguration('perception')
 
-    # Định vị script chạy web backend trong thư mục workspace bằng realpath
-    real_launch_dir = os.path.dirname(os.path.realpath(__file__))
-    workspace_candidates = [
-        os.path.abspath(os.path.join(real_launch_dir, '..', '..', '..')),
-        os.getcwd(),
-        os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..')),
-    ]
-    detected_workspace = None
-    for candidate in workspace_candidates:
-        if os.path.isfile(os.path.join(candidate, 'web', 'backend', 'run_backend.py')):
-            detected_workspace = candidate
-            break
+    localization_share = get_package_share_directory('omni_localization')
+    navigation_share = get_package_share_directory('omni_navigation')
+    perception_share = get_package_share_directory('omni_perception')
 
-    if detected_workspace is None:
-        curr = os.getcwd()
-        for _ in range(8):
-            if os.path.isfile(os.path.join(curr, 'web', 'backend', 'run_backend.py')):
-                detected_workspace = curr
-                break
-            parent = os.path.dirname(curr)
-            if parent == curr:
-                break
-            curr = parent
+    ekf_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(localization_share, 'launch', 'ekf.launch.py')
+        ),
+        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        condition=IfCondition(localization_enabled),
+    )
 
-    detected_workspace = detected_workspace or os.getcwd()
-    default_web_script = os.path.join(detected_workspace, 'web', 'backend', 'run_backend.py')
-    default_venv_python = os.path.join(detected_workspace, 'web', 'backend', '.venv', 'bin', 'python3')
+    slam_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(localization_share, 'launch', 'slam.launch.py')
+        ),
+        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        condition=IfCondition(slam_enabled),
+    )
+
+    nav_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(navigation_share, 'launch', 'navigation.launch.py')
+        ),
+        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        condition=IfCondition(nav_enabled),
+    )
+
+    perception_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(perception_share, 'launch', 'perception.launch.py')
+        ),
+        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        condition=IfCondition(perception_enabled),
+    )
+
+    # Định vị thư mục workspace và script web backend
+    ws_root = os.environ.get('AMR_WORKSPACE') or os.getcwd()
+    if not os.path.isfile(os.path.join(ws_root, 'web', 'backend', 'run_backend.py')):
+        ws_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+
+    default_web_script = os.path.join(ws_root, 'web', 'backend', 'run_backend.py')
+    default_venv_python = os.path.join(ws_root, 'web', 'backend', '.venv', 'bin', 'python3')
     default_python_bin = default_venv_python if os.path.isfile(default_venv_python) else 'python3'
 
     python_bin = LaunchConfiguration('python_bin')
@@ -88,6 +108,14 @@ def generate_launch_description():
                               description='Path to web runner script'),
         DeclareLaunchArgument('python_bin', default_value=default_python_bin,
                               description='Path to Python interpreter for web'),
+        DeclareLaunchArgument('localization', default_value='false',
+                              description='Launch EKF odometry fusion'),
+        DeclareLaunchArgument('slam', default_value='false',
+                              description='Launch SLAM Toolbox for 2D mapping'),
+        DeclareLaunchArgument('nav', default_value='false',
+                              description='Launch Nav2 autonomous navigation stack'),
+        DeclareLaunchArgument('perception', default_value='false',
+                              description='Launch laser filtering and depth perception pipeline'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(simulation),
             launch_arguments={
@@ -106,5 +134,9 @@ def generate_launch_description():
                  'debug_telemetry': debug_telemetry,
                  'debug_telemetry_frequency_hz': debug_telemetry_frequency_hz,
              }], output='screen'),
+        perception_launch,
+        ekf_launch,
+        slam_launch,
+        nav_launch,
         web_process,
     ])

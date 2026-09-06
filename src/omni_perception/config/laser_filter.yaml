@@ -1,0 +1,23 @@
+scan_to_scan_filter_chain:
+  ros__parameters:
+    filter1:
+      name: range_filter
+      type: laser_filters/LaserScanRangeFilter
+      params:
+        lower_threshold: 0.08
+        upper_threshold: 10.0
+        lower_replacement_value: .nan
+        upper_replacement_value: .nan
+    filter2:
+      name: footprint_filter
+      type: laser_filters/LaserScanBoxFilter
+      params:
+        box_frame: base_link
+        min_x: -0.16
+        max_x: 0.16
+        min_y: -0.16
+        max_y: 0.16
+        min_z: -0.10
+        max_z: 0.50
+        invert: false
+

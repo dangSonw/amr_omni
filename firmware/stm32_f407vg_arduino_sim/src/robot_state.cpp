@@ -14,4 +14,5 @@ void initialize_robot_state(RobotState &state) {
     state.settings.motor_kd = kDefaultMotorKd;
     state.imu.valid = false;
     state.imu_fault = true;
+    state.motor_fault = false;
 }

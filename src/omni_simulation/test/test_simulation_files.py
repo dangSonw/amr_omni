@@ -95,15 +95,14 @@ class SimulationFilesTest(unittest.TestCase):
             text = stream.read()
         self.assertIn('class Stm32Simulator', text)
         self.assertIn('forward_kinematics', text)
-        self.assertIn('WheelSpeedPid', text)
+        self.assertIn('ScalarKalman', text)
         self.assertIn(
             'JointState, self.joint_states_topic, self._on_joint_state, 10,',
             text)
         self.assertIn('Imu, self.imu_input_topic, self._on_imu, 10, raw=True', text)
         self.assertIn('deserialize_message', text)
-        self.assertIn('Invalid joint encoder message', text)
-        self.assertIn('Int32MultiArray', text)
-        self.assertIn('encoder_counts_publisher', text)
+        self.assertIn('Odometry', text)
+        self.assertIn('odom_publisher', text)
 
     def test_python_nodes_guard_shutdown_teardown(self):
         root = os.path.dirname(os.path.dirname(__file__))

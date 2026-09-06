@@ -58,23 +58,25 @@ export function LidarViewer({ lidar, odom }: LidarViewerProps) {
     setZoom((prev) => Math.max(15, Math.min(180, prev * factor)));
   };
 
-  // Tích lũy điểm vào bản đồ khi xe di chuyển
+  // Tích lũy điểm vào bản đồ khi xe di chuyển (tối ưu tránh array copy chống GC pressure)
   useEffect(() => {
     if (!accumulateMap || !lidar || !odom || !lidar.points) return;
     const cos_th = Math.cos(odom.theta_rad);
     const sin_th = Math.sin(odom.theta_rad);
+    const buffer = accumulatedPointsRef.current;
 
-    // Chuyển đổi các điểm scan từ hệ robot sang hệ bản đồ thế giới (world frame)
-    const newWorldPoints: Array<[number, number]> = [];
-    for (const [px, py] of lidar.points) {
+    // Chuyển đổi các điểm scan từ hệ robot sang hệ bản đồ thế giới (world frame) và push trực tiếp
+    for (let i = 0; i < lidar.points.length; i++) {
+      const [px, py] = lidar.points[i];
       const wx = odom.x + (cos_th * px - sin_th * py);
       const wy = odom.y + (sin_th * px + cos_th * py);
-      newWorldPoints.push([wx, wy]);
+      buffer.push([wx, wy]);
     }
 
-    // Giới hạn buffer điểm bản đồ tích lũy (~3000 điểm)
-    const buffer = accumulatedPointsRef.current;
-    accumulatedPointsRef.current = [...buffer, ...newWorldPoints].slice(-3200);
+    // Giới hạn buffer điểm bản đồ tích lũy (~3200 điểm) bằng splice in-place
+    if (buffer.length > 3200) {
+      buffer.splice(0, buffer.length - 3200);
+    }
   }, [lidar, odom, accumulateMap]);
 
   // Main Canvas Render Loop
@@ -317,7 +319,7 @@ export function LidarViewer({ lidar, odom }: LidarViewerProps) {
   const minRange = lidar?.ranges && lidar.ranges.length > 0 ? Math.min(...lidar.ranges) : 0;
 
   return (
-    <div className="relative flex flex-col h-full w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="relative flex flex-col h-full w-full overflow-hidden rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {/* Canvas Header */}
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
         <div className="flex items-center gap-2">
@@ -402,7 +404,7 @@ export function LidarViewer({ lidar, odom }: LidarViewerProps) {
         />
 
         {/* Floating Telemetry HUD */}
-        <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 p-2 text-xs font-mono backdrop-blur-md shadow-sm dark:border-slate-800/80 dark:bg-slate-900/90 text-slate-700 dark:text-slate-300">
+        <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-2 rounded-sm border border-slate-200/80 bg-white/90 p-2 text-xs font-mono backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/90 text-slate-700 dark:text-slate-300">
           <div>
             Pose: <span className="font-bold text-brand-600 dark:text-brand-400">X={odom?.x?.toFixed(2) ?? 0}m, Y={odom?.y?.toFixed(2) ?? 0}m</span>
           </div>

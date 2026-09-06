@@ -1,14 +1,15 @@
+import json
 import math
 
 import rclpy
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
+from rclpy.exceptions import InvalidHandle
 from rclpy.node import Node
-from rclpy.impl.implementation_singleton import rclpy_implementation
 from rclpy.serialization import deserialize_message
+from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import Imu, JointState
-from std_msgs.msg import Bool, Float32MultiArray, Float64, Int32MultiArray, String
+from std_msgs.msg import Bool, Float64, String
 from tf2_ros import TransformBroadcaster
 
 from omni_control.kinematics import (
@@ -16,7 +17,81 @@ from omni_control.kinematics import (
     forward_kinematics,
     inverse_kinematics,
 )
-from omni_control.pid import ScalarKalman, WheelSpeedPid
+
+POSE_POSITION_COV = 0.001
+POSE_YAW_COV = 0.01
+TWIST_LINEAR_COV = 0.01
+TWIST_ANGULAR_COV = 0.02
+IMU_ORIENT_COV = 0.0025
+IMU_GYRO_COV = 0.0001
+IMU_ACCEL_COV = 0.01
+
+class SimplePID:
+    """Simple PID controller matching firmware WheelSpeedPid behavior."""
+    def __init__(self, kp, ki, kd, output_limit=1.0):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_limit = output_limit
+        self.integral = 0.0
+        self.previous_measurement = 0.0
+        self.initialized = False
+
+    def reset(self):
+        self.integral = 0.0
+        self.previous_measurement = 0.0
+        self.initialized = False
+
+    def update(self, setpoint, measurement, dt):
+        if not math.isfinite(setpoint) or not math.isfinite(measurement) or dt <= 0:
+            self.reset()
+            return 0.0
+        error = setpoint - measurement
+        if not self.initialized:
+            self.previous_measurement = measurement
+            self.initialized = True
+        derivative = -(measurement - self.previous_measurement) / dt
+        candidate_integral = max(-self.output_limit, min(self.output_limit, self.integral + error * dt))
+        output = self.kp * error + self.ki * candidate_integral + self.kd * derivative
+        output = max(-self.output_limit, min(self.output_limit, output))
+        if abs(output) < self.output_limit or output * error < 0:
+            self.integral = candidate_integral
+        self.previous_measurement = measurement
+        return output
+
+
+class ScalarKalman:
+    """Internal scalar Kalman filter used to simulate STM32 sensor smoothing."""
+
+    def __init__(self, process_noise, measurement_noise):
+        if process_noise < 0 or measurement_noise <= 0:
+            raise ValueError('Kalman noise parameters are invalid')
+        self.process_noise = float(process_noise)
+        self.measurement_noise = float(measurement_noise)
+        self.estimate_value = 0.0
+        self.covariance = 1.0
+        self.initialized = False
+
+    def reset(self, estimate=0.0, covariance=1.0):
+        if not math.isfinite(estimate) or covariance <= 0:
+            raise ValueError('Kalman reset values are invalid')
+        self.estimate_value = float(estimate)
+        self.covariance = float(covariance)
+        self.initialized = True
+
+    def update(self, measurement, delta_sec):
+        if not math.isfinite(measurement):
+            raise ValueError('Kalman measurement must be finite')
+        delta_sec = max(float(delta_sec), 1e-6)
+        if not self.initialized:
+            self.reset(measurement)
+            return self.estimate_value
+
+        self.covariance += self.process_noise * delta_sec
+        gain = self.covariance / (self.covariance + self.measurement_noise)
+        self.estimate_value += gain * (measurement - self.estimate_value)
+        self.covariance *= 1.0 - gain
+        return self.estimate_value
 
 
 class Stm32Simulator(Node):
@@ -49,11 +124,12 @@ class Stm32Simulator(Node):
             '/model/amr_omni/joint/omni_wheel_joint_3/cmd_vel',
             '/model/amr_omni/joint/omni_wheel_joint_4/cmd_vel',
         ])
-        self.declare_parameter('odom_topic', 'odom')
-        self.declare_parameter('imu_output_topic', 'imu/data_raw')
+        self.declare_parameter('odom_topic', 'wheel/odom')
+        self.declare_parameter('imu_output_topic', 'imu/data')
         self.declare_parameter('wheel_state_topic', 'wheel_state')
         self.declare_parameter('diagnostics_topic', 'diagnostics')
         self.declare_parameter('status_topic', 'status')
+        self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('imu_frame', 'imu_link')
@@ -63,6 +139,7 @@ class Stm32Simulator(Node):
         self.command_time = self.get_clock().now()
         self.estop_active = False
         self.measured_wheel_speeds = [0.0] * 4
+        self.raw_wheel_speeds = [0.0] * 4
         self.target_wheel_speeds = [0.0] * 4
         self.motor_commands = [0.0] * 4
         self.last_joint_stamp_sec = None
@@ -75,12 +152,8 @@ class Stm32Simulator(Node):
         self.y_m = 0.0
         self.yaw_rad = 0.0
         self.last_telemetry_time = None
-
-        self.speed_pids = [
-            WheelSpeedPid(self.motor_kp, self.motor_ki, self.motor_kd, 1.0)
-            for _ in range(4)
-        ]
-        self.velocity_filters = [ScalarKalman(0.2, 0.04) for _ in range(3)]
+        self.wheel_filters = [ScalarKalman(0.5, 0.04) for _ in range(4)]
+        self.speed_pids = [SimplePID(self.motor_kp, self.motor_ki, self.motor_kd) for _ in range(4)]
 
         self.actuator_publishers = [
             self.create_publisher(Float64, topic, 10)
@@ -90,13 +163,8 @@ class Stm32Simulator(Node):
             Odometry, self.odom_topic, 10)
         self.imu_publisher = self.create_publisher(
             Imu, self.imu_output_topic, 10)
-        self.wheel_state_publisher = self.create_publisher(
-            Float32MultiArray, self.wheel_state_topic, 10)
-        self.encoder_counts_publisher = self.create_publisher(
-            Int32MultiArray, 'encoder_counts', 10)
-        self.diagnostics_publisher = self.create_publisher(
-            DiagnosticArray, self.diagnostics_topic, 10)
         self.status_publisher = self.create_publisher(String, self.status_topic, 10)
+        self.debug_publisher = self.create_publisher(String, 'debug/data', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.create_subscription(
@@ -160,6 +228,7 @@ class Stm32Simulator(Node):
         self.diagnostics_topic = str(
             self.get_parameter('diagnostics_topic').value)
         self.status_topic = str(self.get_parameter('status_topic').value)
+        self.publish_tf = bool(self.get_parameter('publish_tf').value)
         self.odom_frame = str(self.get_parameter('odom_frame').value)
         self.base_frame = str(self.get_parameter('base_frame').value)
         self.imu_frame = str(self.get_parameter('imu_frame').value)
@@ -191,7 +260,7 @@ class Stm32Simulator(Node):
         if isinstance(message, (bytes, bytearray, memoryview)):
             try:
                 message = deserialize_message(bytes(message), JointState)
-            except (TypeError, ValueError, rclpy_implementation.RCLError) as exc:
+            except (TypeError, ValueError, InvalidHandle, Exception) as exc:
                 self.get_logger().error('Invalid joint encoder message: %s' % exc)
                 self._stop_outputs()
                 return
@@ -216,18 +285,24 @@ class Stm32Simulator(Node):
                              self.encoder_counts_per_rad /
                              delta_sec)
                     if math.isfinite(speed):
-                        self.measured_wheel_speeds[index] = speed
+                        self.raw_wheel_speeds[index] = speed
+                        self.measured_wheel_speeds[index] = (
+                            self.wheel_filters[index].update(speed, delta_sec)
+                        )
                 self.last_encoder_counts[index] = encoder_count
             vel = velocities.get(name)
             if vel is not None and math.isfinite(vel):
-                self.measured_wheel_speeds[index] = vel
+                self.raw_wheel_speeds[index] = vel
+                self.measured_wheel_speeds[index] = (
+                    self.wheel_filters[index].update(vel, delta_sec if delta_sec else 0.01)
+                )
         self.last_joint_stamp_sec = stamp_sec
 
     def _on_imu(self, message):
         if isinstance(message, (bytes, bytearray, memoryview)):
             try:
                 message = deserialize_message(bytes(message), Imu)
-            except (TypeError, ValueError, rclpy_implementation.RCLError) as exc:
+            except (TypeError, ValueError, InvalidHandle, Exception) as exc:
                 self.get_logger().error('Invalid IMU message: %s' % exc)
                 self.imu_received = False
                 return
@@ -250,8 +325,6 @@ class Stm32Simulator(Node):
             self.command = (0.0, 0.0, 0.0)
             self.target_wheel_speeds = [0.0] * 4
             self.motor_commands = [0.0] * 4
-            for controller in self.speed_pids:
-                controller.reset()
             for publisher in self.actuator_publishers:
                 message = Float64()
                 message.data = 0.0
@@ -267,12 +340,18 @@ class Stm32Simulator(Node):
         except ValueError:
             desired = (0.0, 0.0, 0.0, 0.0)
 
+        dt = 1.0 / self.control_frequency_hz
         for index in range(4):
-            command = float(desired[index])
-            self.target_wheel_speeds[index] = command
+            target = float(desired[index])
+            self.target_wheel_speeds[index] = target
+            measured = self.measured_wheel_speeds[index]
+            feedback = self.speed_pids[index].update(target, measured, dt)
+            feedforward = target / self.max_wheel_speed_rad_s
+            command = max(-1.0, min(1.0, feedforward + feedback))
             self.motor_commands[index] = command
+            # Send the actual target wheel speed to Gazebo (Gazebo applies its own physics)
             message = Float64()
-            message.data = command
+            message.data = target  # Gazebo joint velocity controller expects rad/s
             self.actuator_publishers[index].publish(message)
 
     def _telemetry_step(self):
@@ -282,38 +361,50 @@ class Stm32Simulator(Node):
                 self.wheelbase_m, self.track_width_m)
         except ValueError:
             wheel_twist = (0.0, 0.0, 0.0)
-        filtered = [
-            self.velocity_filters[index].update(
-                wheel_twist[index], 1.0 / self.telemetry_frequency_hz)
-            for index in range(3)
-        ]
-        imu_age_sec = ((self.get_clock().now() - self.last_imu_time).nanoseconds
-                       * 1e-9)
-        if (self.imu_received and imu_age_sec <= self.command_timeout_sec and
-                math.isfinite(self.last_imu.angular_velocity.z)):
-            filtered[2] = self.velocity_filters[2].update(
-                self.last_imu.angular_velocity.z,
-                1.0 / self.telemetry_frequency_hz)
+        vx = wheel_twist[0]
+        vy = wheel_twist[1]
+        wz = wheel_twist[2]
+
         now = self.get_clock().now()
         now_sec = now.nanoseconds * 1e-9
         if self.last_telemetry_time is not None:
             delta_sec = now_sec - self.last_telemetry_time
             if 0.0 < delta_sec <= 1.0:
+                self.yaw_rad = math.atan2(
+                    math.sin(self.yaw_rad + wz * delta_sec),
+                    math.cos(self.yaw_rad + wz * delta_sec),
+                )
                 cos_yaw = math.cos(self.yaw_rad)
                 sin_yaw = math.sin(self.yaw_rad)
-                self.x_m += (cos_yaw * filtered[0] - sin_yaw * filtered[1]) * delta_sec
-                self.y_m += (sin_yaw * filtered[0] + cos_yaw * filtered[1]) * delta_sec
-                self.yaw_rad = math.atan2(
-                    math.sin(self.yaw_rad + filtered[2] * delta_sec),
-                    math.cos(self.yaw_rad + filtered[2] * delta_sec),
-                )
+                self.x_m += (cos_yaw * vx - sin_yaw * vy) * delta_sec
+                self.y_m += (sin_yaw * vx + cos_yaw * vy) * delta_sec
         self.last_telemetry_time = now_sec
         stamp = now.to_msg()
-        self._publish_odometry(stamp, filtered)
+        self._publish_odometry(stamp, (vx, vy, wz))
         self._publish_imu(stamp)
-        self._publish_wheel_state()
-        self._publish_encoder_counts()
-        self._publish_diagnostics(stamp, imu_age_sec)
+        self._publish_status('estop' if self.estop_active else 'ok')
+        
+        debug_data = {
+            'raw_wheel_speed_rad_s': self.raw_wheel_speeds,
+            'filtered_wheel_speed_rad_s': self.measured_wheel_speeds,
+            'target_wheel_speed_rad_s': self.target_wheel_speeds,
+            'motor_output': self.motor_commands,
+            'imu_quaternion_xyzw': [
+                self.last_imu.orientation.x,
+                self.last_imu.orientation.y,
+                self.last_imu.orientation.z,
+                self.last_imu.orientation.w,
+            ],
+            'body_vx_mps': vx,
+            'body_vy_mps': vy,
+            'body_wz_rad_s': wz,
+            'cmd_vx_mps': self.command[0],
+            'cmd_vy_mps': self.command[1],
+            'cmd_wz_rad_s': self.command[2],
+        }
+        msg = String()
+        msg.data = json.dumps(debug_data)
+        self.debug_publisher.publish(msg)
 
     def _publish_odometry(self, stamp, velocity):
         message = Odometry()
@@ -322,68 +413,48 @@ class Stm32Simulator(Node):
         message.child_frame_id = self.base_frame
         message.pose.pose.position.x = self.x_m
         message.pose.pose.position.y = self.y_m
-        message.pose.pose.orientation.z = math.sin(self.yaw_rad / 2.0)
-        message.pose.pose.orientation.w = math.cos(self.yaw_rad / 2.0)
+        quat = Rotation.from_euler('z', self.yaw_rad).as_quat()
+        message.pose.pose.orientation.x = float(quat[0])
+        message.pose.pose.orientation.y = float(quat[1])
+        message.pose.pose.orientation.z = float(quat[2])
+        message.pose.pose.orientation.w = float(quat[3])
         message.twist.twist.linear.x = velocity[0]
         message.twist.twist.linear.y = velocity[1]
         message.twist.twist.angular.z = velocity[2]
-        message.pose.covariance[0] = 0.001
-        message.pose.covariance[7] = 0.001
-        message.pose.covariance[35] = 0.01
-        message.twist.covariance[0] = 0.01
-        message.twist.covariance[7] = 0.01
-        message.twist.covariance[35] = 0.02
+        message.pose.covariance[0] = POSE_POSITION_COV
+        message.pose.covariance[7] = POSE_POSITION_COV
+        message.pose.covariance[35] = POSE_YAW_COV
+        message.twist.covariance[0] = TWIST_LINEAR_COV
+        message.twist.covariance[7] = TWIST_LINEAR_COV
+        message.twist.covariance[35] = TWIST_ANGULAR_COV
         self.odom_publisher.publish(message)
 
-        transform = TransformStamped()
-        transform.header = message.header
-        transform.child_frame_id = self.base_frame
-        transform.transform.translation.x = self.x_m
-        transform.transform.translation.y = self.y_m
-        transform.transform.rotation.z = message.pose.pose.orientation.z
-        transform.transform.rotation.w = message.pose.pose.orientation.w
-        self.tf_broadcaster.sendTransform(transform)
+        if self.publish_tf:
+            transform = TransformStamped()
+            transform.header = message.header
+            transform.child_frame_id = self.base_frame
+            transform.transform.translation.x = self.x_m
+            transform.transform.translation.y = self.y_m
+            transform.transform.rotation = message.pose.pose.orientation
+            self.tf_broadcaster.sendTransform(transform)
 
     def _publish_imu(self, stamp):
         message = Imu()
         message.header.stamp = stamp
         message.header.frame_id = self.imu_frame
-        message.linear_acceleration = self.last_imu.linear_acceleration
-        message.angular_velocity = self.last_imu.angular_velocity
         message.orientation = self.last_imu.orientation
+        message.angular_velocity = self.last_imu.angular_velocity
+        message.linear_acceleration = self.last_imu.linear_acceleration
+        message.orientation_covariance[0] = IMU_ORIENT_COV
+        message.orientation_covariance[4] = IMU_ORIENT_COV
+        message.orientation_covariance[8] = IMU_ORIENT_COV
+        message.angular_velocity_covariance[0] = IMU_GYRO_COV
+        message.angular_velocity_covariance[4] = IMU_GYRO_COV
+        message.angular_velocity_covariance[8] = IMU_GYRO_COV
+        message.linear_acceleration_covariance[0] = IMU_ACCEL_COV
+        message.linear_acceleration_covariance[4] = IMU_ACCEL_COV
+        message.linear_acceleration_covariance[8] = IMU_ACCEL_COV
         self.imu_publisher.publish(message)
-
-    def _publish_wheel_state(self):
-        message = Float32MultiArray()
-        message.data = (
-            list(self.measured_wheel_speeds) +
-            list(self.target_wheel_speeds) +
-            list(self.motor_commands)
-        )
-        self.wheel_state_publisher.publish(message)
-
-    def _publish_encoder_counts(self):
-        message = Int32MultiArray()
-        message.data = list(self.encoder_counts)
-        self.encoder_counts_publisher.publish(message)
-
-    def _publish_diagnostics(self, stamp, imu_age_sec):
-        message = DiagnosticArray()
-        message.header.stamp = stamp
-        status = DiagnosticStatus()
-        status.name = 'stm32_simulator'
-        status.hardware_id = 'gazebo-stm32-firmware-model'
-        status.level = (DiagnosticStatus.ERROR if self.estop_active
-                        else DiagnosticStatus.OK)
-        status.message = 'estop' if self.estop_active else 'ok'
-        status.values = [
-            KeyValue(key='command_age_sec', value='%.4f' % (
-                (self.get_clock().now() - self.command_time).nanoseconds * 1e-9)),
-            KeyValue(key='imu_age_sec', value='%.4f' % imu_age_sec),
-        ]
-        message.status = [status]
-        self.diagnostics_publisher.publish(message)
-        self._publish_status(status.message)
 
     def _publish_status(self, text):
         message = String()
@@ -409,7 +480,7 @@ class Stm32Simulator(Node):
                 message.data = 0.0
                 try:
                     publisher.publish(message)
-                except rclpy_implementation.RCLError:
+                except (InvalidHandle, Exception):
                     pass
         return super().destroy_node()
 

@@ -10,17 +10,18 @@ export function useRobotWs() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectDelayRef = useRef<number>(1500);
   const lastPacketTimeRef = useRef<number>(Date.now());
 
   const connect = useCallback(() => {
     if (typeof window === "undefined") return;
 
-    // Xác định URL WebSocket dựa trên host hiện tại
+    // Xác định URL WebSocket: ưu tiên biến môi trường NEXT_PUBLIC_WS_URL
+    const envWsUrl = process.env.NEXT_PUBLIC_WS_URL;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.hostname || "localhost";
-    // Nếu chạy ở port 3000 (Next.js dev), kết nối tới port 8000 (FastAPI). Nếu phục vụ cùng port thì dùng port đó.
     const port = window.location.port === "3000" ? "8000" : (window.location.port || "8000");
-    const wsUrl = `${protocol}//${host}:${port}/ws/telemetry`;
+    const wsUrl = envWsUrl || `${protocol}//${host}:${port}/ws/telemetry`;
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -29,16 +30,16 @@ export function useRobotWs() {
       ws.onopen = () => {
         setConnected(true);
         lastPacketTimeRef.current = Date.now();
+        reconnectDelayRef.current = 1500;
       };
 
       ws.onmessage = (event) => {
-        const now = Date.now();
-        setPingMs(now - lastPacketTimeRef.current);
-        lastPacketTimeRef.current = now;
-
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "telemetry") {
+          if (data.type === "pong") {
+            const rtt = Date.now() - (data.ts || Date.now());
+            setPingMs(Math.max(1, rtt));
+          } else if (data.type === "telemetry") {
             setTelemetry(data);
           }
         } catch (err) {
@@ -49,8 +50,8 @@ export function useRobotWs() {
       ws.onclose = () => {
         setConnected(false);
         wsRef.current = null;
-        // Tự động kết nối lại sau 1.5 giây
-        reconnectTimeoutRef.current = setTimeout(connect, 1500);
+        reconnectTimeoutRef.current = setTimeout(connect, reconnectDelayRef.current);
+        reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 30000);
       };
 
       ws.onerror = () => {
@@ -58,28 +59,45 @@ export function useRobotWs() {
       };
     } catch (err) {
       console.error("WebSocket init error:", err);
-      reconnectTimeoutRef.current = setTimeout(connect, 2000);
+      reconnectTimeoutRef.current = setTimeout(connect, reconnectDelayRef.current);
+      reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 30000);
     }
   }, []);
 
   useEffect(() => {
     connect();
+    const pingInterval = setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "ping", ts: Date.now() }));
+      }
+    }, 1000);
+
     return () => {
+      clearInterval(pingInterval);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsRef.current) wsRef.current.close();
     };
   }, [connect]);
 
   const sendCmdVel = useCallback((vx: number, vy: number, wz: number) => {
+    const rVx = Math.round(vx * 1000) / 1000;
+    const rVy = Math.round(vy * 1000) / 1000;
+    const rWz = Math.round(wz * 1000) / 1000;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           type: "cmd_vel",
-          vx: Math.round(vx * 1000) / 1000,
-          vy: Math.round(vy * 1000) / 1000,
-          wz: Math.round(wz * 1000) / 1000,
+          vx: rVx,
+          vy: rVy,
+          wz: rWz,
         })
       );
+    } else {
+      fetch("/api/cmd-vel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linear_x: rVx, linear_y: rVy, angular_z: rWz }),
+      }).catch(() => {});
     }
   }, []);
 

@@ -1,7 +1,6 @@
 import logging
 import os
 from app.bridges.base import BaseRobotBridge
-from app.bridges.mock_bridge import MockSimulatorBridge
 
 logger = logging.getLogger("amr_web.bridge")
 
@@ -27,26 +26,30 @@ def get_bridge() -> BaseRobotBridge:
         _current_bridge = Ros2Bridge()
         return _current_bridge
 
-    if requested_mode == "auto":
-        try:
-            from app.bridges.ros2_bridge import Ros2Bridge, HAS_RCLPY
-            if HAS_RCLPY:
-                logger.info("Khởi tạo ROS 2 Jazzy Bridge (rclpy) ở chế độ tự động...")
-                _current_bridge = Ros2Bridge()
-                return _current_bridge
-        except Exception as e:
-            logger.warning(f"Không thể khởi tạo ROS 2 Bridge: {e}. Thử các chế độ khác...")
-
     if requested_mode == "ros1":
-        try:
-            from app.bridges.ros1_bridge import Ros1Bridge
-            logger.info("Khởi tạo ROS 1 Melodic Bridge (Jetson)...")
-            _current_bridge = Ros1Bridge()
+        from app.bridges.ros1_bridge import Ros1Bridge
+        logger.info("Khởi tạo ROS 1 Melodic Bridge (Jetson)...")
+        _current_bridge = Ros1Bridge()
+        return _current_bridge
+
+    # Auto mode: kiểm tra ROS 2 trước, fallback sang ROS 1
+    try:
+        from app.bridges.ros2_bridge import Ros2Bridge, HAS_RCLPY
+        if HAS_RCLPY:
+            logger.info("Khởi tạo ROS 2 Jazzy Bridge (rclpy) ở chế độ tự động...")
+            _current_bridge = Ros2Bridge()
             return _current_bridge
-        except Exception as e:
-            logger.warning(f"Không thể khởi tạo ROS 1 Bridge: {e}. Fallback sang Mock.")
+    except Exception as e:
+        logger.warning(f"Không thể khởi tạo ROS 2 Bridge: {e}. Thử ROS 1...")
 
-    logger.info("Khởi tạo MockSimulatorBridge độc lập (Kinematics + LiDAR 360)...")
-    _current_bridge = MockSimulatorBridge()
+    try:
+        from app.bridges.ros1_bridge import Ros1Bridge
+        logger.info("Khởi tạo ROS 1 Melodic Bridge (Jetson)...")
+        _current_bridge = Ros1Bridge()
+        return _current_bridge
+    except Exception as e:
+        logger.warning(f"Không thể khởi tạo ROS 1 Bridge: {e}.")
+
+    from app.bridges.ros2_bridge import Ros2Bridge
+    _current_bridge = Ros2Bridge()
     return _current_bridge
-

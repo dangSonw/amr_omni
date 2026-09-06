@@ -18,6 +18,7 @@ WheelSpeedPid::WheelSpeedPid(float kp, float ki, float kd, float output_limit)
       integral_limit_(1.0F),
       integral_(0.0F),
       previous_error_(0.0F),
+      previous_measurement_(0.0F),
       initialized_(false) {
     configure(kp, ki, kd, output_limit);
     reset();
@@ -39,6 +40,7 @@ void WheelSpeedPid::configure(float kp, float ki, float kd, float output_limit) 
 void WheelSpeedPid::reset() {
     integral_ = 0.0F;
     previous_error_ = 0.0F;
+    previous_measurement_ = 0.0F;
     initialized_ = false;
 }
 
@@ -52,9 +54,10 @@ float WheelSpeedPid::update(float setpoint, float measurement, float delta_sec) 
     const float error = setpoint - measurement;
     if (!initialized_) {
         previous_error_ = error;
+        previous_measurement_ = measurement;
         initialized_ = true;
     }
-    const float derivative = (error - previous_error_) / dt;
+    const float derivative = -(measurement - previous_measurement_) / dt;
     const float candidate_integral = clamp(
         integral_ + error * dt, -integral_limit_, integral_limit_);
     const float unclamped = kp_ * error + ki_ * candidate_integral +
@@ -64,5 +67,6 @@ float WheelSpeedPid::update(float setpoint, float measurement, float delta_sec) 
         integral_ = candidate_integral;
     }
     previous_error_ = error;
+    previous_measurement_ = measurement;
     return output;
 }

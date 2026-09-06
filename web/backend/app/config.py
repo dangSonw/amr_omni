@@ -16,7 +16,7 @@ class Settings(BaseSettings):
         "*",
     ]
 
-    # Mode: "auto", "ros2", "ros1", "mock"
+    # Mode: "auto", "ros2", "ros1"
     BRIDGE_MODE: str = os.getenv("ROBOT_BRIDGE_MODE", "auto")
 
     # Static frontend directory

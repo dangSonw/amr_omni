@@ -43,11 +43,16 @@ class TelemetryHub:
         self.active_connections.discard(websocket)
         logger.info(f"WebSocket client disconnected. Total clients: {len(self.active_connections)}")
 
-    async def handle_client_message(self, data: dict):
+    async def handle_client_message(self, data: dict, websocket: WebSocket | None = None):
         msg_type = data.get("type")
         bridge = get_bridge()
 
-        if msg_type == "cmd_vel":
+        if msg_type == "ping" and websocket is not None:
+            await websocket.send_text(json.dumps({
+                "type": "pong",
+                "ts": data.get("ts", 0),
+            }))
+        elif msg_type == "cmd_vel":
             vx = float(data.get("vx", 0.0))
             vy = float(data.get("vy", 0.0))
             wz = float(data.get("wz", 0.0))
@@ -73,20 +78,22 @@ class TelemetryHub:
                         "imu": bridge.get_imu_telemetry().model_dump(),
                         "odom": bridge.get_odometry().model_dump(),
                         "lidar": bridge.get_lidar_telemetry().model_dump(),
+                        "paths": bridge.get_path_telemetry().model_dump(),
                         "streams": [s.model_dump() for s in stream_monitor.get_all()],
+                        "debug": bridge.get_debug_telemetry().model_dump() if bridge.get_debug_telemetry() else None,
                     }
                     message = json.dumps(payload)
 
-                    # Gửi tới tất cả các client
-                    disconnected = set()
-                    for ws in self.active_connections:
-                        try:
-                            await ws.send_text(message)
-                        except Exception:
-                            disconnected.add(ws)
-
-                    for ws in disconnected:
-                        self.unregister(ws)
+                    # Gửi đồng thời tới tất cả các client bằng asyncio.gather
+                    connections = list(self.active_connections)
+                    if connections:
+                        results = await asyncio.gather(
+                            *(ws.send_text(message) for ws in connections),
+                            return_exceptions=True
+                        )
+                        for ws, result in zip(connections, results):
+                            if isinstance(result, Exception):
+                                self.unregister(ws)
 
                 except Exception as e:
                     logger.error(f"Lỗi khi broadcast telemetry: {e}")

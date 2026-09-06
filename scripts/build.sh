@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT_DIR="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+ROOT_DIR="$(get_repo_root)"
 
 COMPONENT="ros2"
 ROS_DISTRO="${ROS_DISTRO:-jazzy}"
@@ -29,7 +32,7 @@ reported as successful; use --skip-empty only when a scaffold is intentionally
 being skipped.
 
 Options:
-  --component ros2|firmware|all  What to build (default: ros2)
+  --component ros2|firmware|web|all  What to build (default: ros2)
   --firmware NAME|PATH           PlatformIO project (repeatable; default: all)
   --environment ENV              PlatformIO environment, e.g. disco_f407vg
   --package NAME                 Select one ROS package (repeatable)
@@ -50,19 +53,6 @@ Examples:
   scripts/build.sh --component all --test --skip-empty
   scripts/build.sh --component ros2 --test-only --package omni_control
 EOF
-}
-
-die() {
-  echo "build.sh: $*" >&2
-  exit 1
-}
-
-info() {
-  echo "[INFO] $*"
-}
-
-warn() {
-  echo "[WARN] $*" >&2
 }
 
 resolve_firmware_project() {
@@ -115,6 +105,14 @@ source_ros2() {
     COLCON_BIN="$(command -v colcon)"
   fi
   [[ "$(uname -m)" == x86_64 ]] || die 'ROS 2 simulation build requires x86_64 WSL2.'
+  if [[ -z "${ROS_LOG_DIR:-}" ]]; then
+    if ! touch "${HOME}/.ros/log/.writable_test" 2>/dev/null; then
+      export ROS_LOG_DIR="${ROOT_DIR}/.temp_ros_log"
+      mkdir -p "$ROS_LOG_DIR"
+    else
+      rm -f "${HOME}/.ros/log/.writable_test"
+    fi
+  fi
 }
 
 validate_inside_root() {
@@ -206,10 +204,10 @@ build_firmware_project() {
   fi
 
   local -a build_command=("$pio_bin" run --project-dir "$project")
-  local -a test_command=("$pio_bin" test --project-dir "$project")
+  local test_env="${PIO_ENV:-native}"
+  local -a test_command=("$pio_bin" test --project-dir "$project" --environment "$test_env")
   if [[ -n "$PIO_ENV" ]]; then
     build_command+=(--environment "$PIO_ENV")
-    test_command+=(--environment "$PIO_ENV")
   fi
   if [[ "$DO_BUILD" == true ]]; then
     info "building firmware: ${name}"
@@ -247,10 +245,45 @@ build_firmware() {
   done
 }
 
+build_web() {
+  local frontend_dir="${ROOT_DIR}/web/frontend"
+  local static_dir="${ROOT_DIR}/web/backend/static"
+  local backend_dir="${ROOT_DIR}/web/backend"
+
+  if [[ "$CLEAN" == true ]]; then
+    info 'cleaning web frontend build artifacts'
+    rm -rf "${frontend_dir}/.next" "${frontend_dir}/out"
+  fi
+
+  if [[ "$DO_BUILD" == true ]]; then
+    command -v npm >/dev/null 2>&1 || die 'npm is not installed (run scripts/setup.sh).'
+    command -v node >/dev/null 2>&1 || die 'node is not installed (run scripts/setup.sh).'
+
+    info 'building Next.js frontend static bundle'
+    (cd "$frontend_dir" && npm run build)
+
+    info "copying static export bundle to ${static_dir}"
+    mkdir -p "$static_dir"
+    rm -rf "${static_dir}/_next"
+    cp -r "${frontend_dir}/out/"* "${static_dir}/"
+    info 'web frontend build complete'
+  fi
+
+  if [[ "$DO_TEST" == true ]]; then
+    info 'testing web backend APIs'
+    local py_bin="${backend_dir}/.venv/bin/python3"
+    if [[ ! -x "$py_bin" ]]; then
+      py_bin="$(command -v python3)"
+    fi
+    (cd "$backend_dir" && "$py_bin" -m pytest tests/)
+    info 'web tests complete'
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --component)
-      [[ $# -ge 2 ]] || die '--component requires ros2, firmware or all'
+      [[ $# -ge 2 ]] || die '--component requires ros2, firmware, web or all'
       COMPONENT="$2"
       shift 2
       ;;
@@ -324,11 +357,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "${COMPONENT:-ros2}" in
-  ros2|firmware|all) ;;
-  *) die "invalid --component: ${COMPONENT:-}" ;;
+  ros2|firmware|web|all) ;;
+  *) die "invalid --component: ${COMPONENT:-} (valid: ros2, firmware, web, all)" ;;
 esac
 COMPONENT="${COMPONENT:-ros2}"
 if [[ "$COMPONENT" == firmware && "${#ROS_PACKAGES[@]}" -gt 0 ]]; then
+  die '--package is only valid with --component ros2 or all'
+fi
+if [[ "$COMPONENT" == web && "${#ROS_PACKAGES[@]}" -gt 0 ]]; then
   die '--package is only valid with --component ros2 or all'
 fi
 if [[ "$COMPONENT" == ros2 && "${#FIRMWARE_FILTERS[@]}" -gt 0 ]]; then
@@ -345,9 +381,13 @@ case "$COMPONENT" in
   firmware)
     build_firmware
     ;;
+  web)
+    build_web
+    ;;
   all)
     build_ros2
     build_firmware
+    build_web
     ;;
 esac
 info "build workflow completed (skipped components: ${SKIPPED})"

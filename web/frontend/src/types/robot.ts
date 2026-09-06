@@ -1,5 +1,5 @@
 export interface RobotStatus {
-  mode: "simulation" | "hardware" | "mock";
+  mode: "simulation" | "hardware";
   connected: boolean;
   estop_active: boolean;
   safety_stop: boolean;
@@ -28,6 +28,10 @@ export interface ImuTelemetry {
   gyro_x: number;
   gyro_y: number;
   gyro_z: number;
+  qx: number;
+  qy: number;
+  qz: number;
+  qw: number;
 }
 
 export interface LidarTelemetry {
@@ -81,6 +85,26 @@ export interface RobotConfig {
   debug_telemetry: boolean;
 }
 
+export interface PathTelemetry {
+  global_path: [number, number][];
+  local_path: [number, number][];
+  obstacles?: [number, number][];
+}
+
+export interface DebugTelemetry {
+  raw_wheel_speed_rad_s: number[];
+  filtered_wheel_speed_rad_s: number[];
+  target_wheel_speed_rad_s: number[];
+  motor_output: number[];
+  imu_quaternion_xyzw: number[];
+  body_vx_mps: number;
+  body_vy_mps: number;
+  body_wz_rad_s: number;
+  cmd_vx_mps: number;
+  cmd_vy_mps: number;
+  cmd_wz_rad_s: number;
+}
+
 export interface FullTelemetryMessage {
   type: "telemetry";
   status: RobotStatus;
@@ -89,5 +113,8 @@ export interface FullTelemetryMessage {
   odom: OdometryTelemetry;
   lidar: LidarTelemetry;
   streams: StreamInfo[];
+  paths?: PathTelemetry;
+  debug?: DebugTelemetry;
 }
+
 

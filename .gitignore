@@ -77,3 +77,4 @@ node_modules/
 out/
 .temp_home/
 .temp_ros_log
+map

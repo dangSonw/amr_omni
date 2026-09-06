@@ -1,0 +1,25 @@
+twist_mux:
+  ros__parameters:
+    topics:
+      estop:
+        topic: estop_cmd_vel
+        timeout: 0.25
+        priority: 100
+      safety_stop:
+        topic: safety_stop_cmd_vel
+        timeout: 0.25
+        priority: 90
+      teleop:
+        topic: teleop_cmd_vel
+        timeout: 0.25
+        priority: 80
+      nav:
+        topic: nav_cmd_vel
+        timeout: 0.50
+        priority: 70
+    locks:
+      pause:
+        topic: pause_navigation
+        timeout: 0.0
+        priority: 100
+

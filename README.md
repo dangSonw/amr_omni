@@ -160,6 +160,13 @@ chọn:
 ./scripts/run_sim.sh --help
 ./scripts/run_robot.sh --help
 ./scripts/flash_mcu.sh --help
+./scripts/run_web.sh --help
+./scripts/run_bridge.sh --help
+./scripts/calibrate.sh --help
+./scripts/diagnostics.sh --help
+./scripts/bag.sh --help
+./scripts/save_map.sh --help
+./scripts/install.sh --help
 ```
 
 Quy ước exit code:
@@ -700,11 +707,49 @@ front_left, front_right, rear_left, rear_right
 ```
 
 Các topic/contract liên quan gồm `/scan`, `/imu`, `/camera`, `estop`,
-`safety_stop`, `odom`, `imu/data_raw`, `wheel_state`, `diagnostics` và `status`.
+`safety_stop`, `odom`, `imu/data_raw`, `wheel_state`, `diagnostics`, `status` và `debug/data`.
 Watchdog và STM32 đều phát lệnh zero khi mất command quá `0.25 s`. Với phần
 cứng, `micro_ros_agent serial` là cầu nối XRCE-DDS duy nhất; firmware chỉ nhận
 `stm32_cmd_vel`/`estop`, tính inverse kinematics + bốn PID tốc độ, và phát
 telemetry.
+
+Topic `debug/data` (`std_msgs/String` định dạng JSON) cung cấp dữ liệu nội bộ phục vụ chẩn đoán:
+- `raw_wheel_speed_rad_s`: Tốc độ 4 bánh đo từ encoder trước bộ lọc Kalman;
+- `filtered_wheel_speed_rad_s`: Tốc độ 4 bánh sau khi qua bộ lọc Kalman;
+- `target_wheel_speed_rad_s`: Tốc độ bánh mục tiêu từ động học ngược;
+- `motor_output`: Giá trị lệnh actuator điều khiển từ vòng kín PID;
+- `imu_quaternion_xyzw`: Quaternion cảm biến IMU chính xác không lọc;
+- `body_vx_mps`, `body_vy_mps`, `body_wz_rad_s`: Vận tốc tịnh tiến và vận tốc góc thân xe thực tế;
+- `cmd_vx_mps`, `cmd_vy_mps`, `cmd_wz_rad_s`: Vận tốc tịnh tiến và vận tốc góc đặt.
+
+### 12.1. Giao diện Web Dashboard & Debug Monitoring
+
+Khởi động giao diện điều khiển và giám sát:
+
+```bash
+./scripts/run_web.sh
+```
+
+- Mở trình duyệt tại `http://localhost:8000` (hoặc port `3000` nếu chạy `--dev`).
+- Giao diện thiết kế phẳng (flat/industrial style, bo góc tối thiểu `rounded-sm`) với 3 tabs:
+  1. **Control Cockpit**: Bản đồ 2D SLAM, chùm quét LiDAR, Camera live feed, telemetry động học và điều khiển phím WASD (tần số lệnh 12.5 Hz giữ an toàn cho watchdog).
+  2. **System Config**: Hiệu chỉnh trực tiếp tham số động học, giới hạn vận tốc, timeout watchdog và hệ số PID vòng kín motor.
+  3. **Debug Monitor**: Hiển thị đồ thị thời gian thực (Recharts) gồm:
+     - 4 đồ thị tốc độ bánh xe (so sánh song song Raw vs Filtered Kalman vs Target);
+     - IMU Quaternion hiển thị giá trị số chính xác và biểu đồ biến thiên;
+     - Biểu đồ vận tốc góc (wz) theo thời gian;
+     - Biểu đồ so sánh vận tốc dài đặt và thực tế (Vx, Vy);
+     - Chẩn đoán chi tiết trạng thái 4 động cơ và ma trận luồng dữ liệu (Stream Matrix).
+
+### 12.2. Các scripts tiện ích bổ trợ
+
+- `./scripts/calibrate.sh`: Quy trình hiệu chuẩn odometry thực tế (bán kính bánh xe) và offset cảm biến IMU (đã có kiểm tra chống chia cho 0).
+- `./scripts/diagnostics.sh`: Kiểm tra toàn diện phần cứng, cổng USB, kết nối mạng, tiến trình ROS và bộ nhớ.
+- `./scripts/run_bridge.sh`: Cầu nối ROS 1 (Jetson Melodic) <-> ROS 2 (Host Jazzy) qua `ros1_bridge` hoặc Rosbridge WebSocket (mặc định trỏ `localhost:11311`, hỗ trợ cờ `--master-uri`).
+- `./scripts/save_map.sh`: Lưu bản đồ OccupancyGrid SLAM đang chạy thành file PNG/YAML.
+- `./scripts/bag.sh`: Ghi và phát lại dữ liệu rosbag cho các topic cảm biến chính.
+- `./scripts/install.sh`: Cài đặt udev rules nhận diện cổng USB cố định (`/dev/amr_*`) và tạo systemd service tự khởi động robot khi bật nguồn (hỗ trợ tham số `--ros-workspace`, `--ros-package`, `--ros-launch`).
+
 
 ## 13. Troubleshooting
 

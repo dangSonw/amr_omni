@@ -17,6 +17,7 @@ private:
     float integral_limit_;
     float integral_;
     float previous_error_;
+    float previous_measurement_;
     bool initialized_;
 };
 

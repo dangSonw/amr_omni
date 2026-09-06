@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT_DIR="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+ROOT_DIR="$(get_repo_root)"
 HOST="0.0.0.0"
 PORT="8000"
 MODE="auto"
@@ -17,26 +20,17 @@ Start the AMR Omni web interface (FastAPI backend + Next.js frontend).
 Options:
   --port PORT        Port for backend web server (default: 8000)
   --host HOST        Host address to bind to (default: 0.0.0.0)
-  --mode MODE        Bridge mode: auto, ros2, ros1, mock (default: auto)
+  --mode MODE        Bridge mode: auto, ros2, ros1 (default: auto)
   --dev              Run Next.js dev server on port 3000 alongside backend
   --build            Rebuild frontend static bundle before starting
   -h, --help         Show this help message
 
 Examples:
   scripts/run_web.sh                     # Start production backend + static UI
-  scripts/run_web.sh --mode mock         # Start standalone simulation mock
+  scripts/run_web.sh --mode ros2         # Start with native ROS 2 Jazzy bridge
   scripts/run_web.sh --dev               # Start with Next.js hot-reload on :3000
   scripts/run_web.sh --build             # Rebuild frontend and serve
 EOF
-}
-
-die() {
-  echo "run_web.sh: $*" >&2
-  exit 1
-}
-
-info() {
-  echo "[INFO] $*"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -52,7 +46,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --mode)
-      [[ $# -ge 2 ]] || die '--mode requires a mode (auto, ros2, ros1, mock)'
+      [[ $# -ge 2 ]] || die '--mode requires a mode (auto, ros2, ros1)'
       MODE="$2"
       shift 2
       ;;

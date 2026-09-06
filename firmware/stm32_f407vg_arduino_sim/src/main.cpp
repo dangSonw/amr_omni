@@ -7,19 +7,14 @@
 
 #include <micro_ros_platformio.h>
 
-#include <diagnostic_msgs/msg/diagnostic_array.h>
-#include <diagnostic_msgs/msg/diagnostic_status.h>
-#include <diagnostic_msgs/msg/key_value.h>
 #include <geometry_msgs/msg/twist.h>
 #include <nav_msgs/msg/odometry.h>
+#include <sensor_msgs/msg/imu.h>
 #include <rcl/rcl.h>
 #include <rclc/executor.h>
 #include <rclc/rclc.h>
-#include <sensor_msgs/msg/imu.h>
 #include <std_msgs/msg/bool.h>
-#include <std_msgs/msg/float32_multi_array.h>
 #include <std_msgs/msg/header.h>
-#include <std_msgs/msg/int32_multi_array.h>
 #include <std_msgs/msg/string.h>
 
 #include "FreeRTOS.h"
@@ -38,9 +33,7 @@ namespace {
 const char *const kNodeName = "omni_stm32_f407vg";
 const char *const kFrameId = "odom";
 const char *const kChildFrameId = "base_link";
-const char *const kImuFrameId = "imu_link";
-const uint8_t kDiagnosticKeyCount = 2U;
-const uint8_t kDiagnosticMessageCapacity = 64U;
+const uint8_t kStatusMessageCapacity = 64U;
 
 RobotState robot_state;
 SemaphoreHandle_t state_mutex = nullptr;
@@ -54,52 +47,38 @@ rcl_subscription_t cmd_vel_subscriber;
 rcl_subscription_t estop_subscriber;
 rcl_publisher_t odometry_publisher;
 rcl_publisher_t imu_publisher;
-rcl_publisher_t wheel_state_publisher;
-rcl_publisher_t encoder_counts_publisher;
-rcl_publisher_t diagnostics_publisher;
 rcl_publisher_t status_publisher;
+rcl_publisher_t debug_publisher;
 
 geometry_msgs__msg__Twist cmd_vel_message;
 std_msgs__msg__Bool estop_message;
 nav_msgs__msg__Odometry odometry_message;
 sensor_msgs__msg__Imu imu_message;
-std_msgs__msg__Float32MultiArray wheel_state_message;
-std_msgs__msg__Int32MultiArray encoder_counts_message;
-diagnostic_msgs__msg__DiagnosticArray diagnostics_message;
 std_msgs__msg__String status_message;
+std_msgs__msg__String debug_message;
 
-float wheel_state_values[kWheelCount * 3U];
-int32_t encoder_count_values[kWheelCount];
-diagnostic_msgs__msg__DiagnosticStatus diagnostic_statuses[1];
-diagnostic_msgs__msg__KeyValue diagnostic_values[kDiagnosticKeyCount];
-char diagnostic_key_storage[kDiagnosticKeyCount][24];
-char diagnostic_value_storage[kDiagnosticKeyCount]
-    [kDiagnosticMessageCapacity];
 char odometry_frame_storage[16];
 char odometry_child_frame_storage[16];
 char imu_frame_storage[16];
-char diagnostics_frame_storage[1];
-char diagnostic_name_storage[32];
-char diagnostic_message_storage[kDiagnosticMessageCapacity];
-char diagnostic_hardware_storage[32];
-char status_storage[kDiagnosticMessageCapacity];
-std_msgs__msg__MultiArrayDimension wheel_state_dimensions[1];
+char status_storage[kStatusMessageCapacity];
+char debug_storage[384];
+
+enum RosInitFlag : uint16_t {
+    kInitSupport    = 1U << 0U,
+    kInitNode       = 1U << 1U,
+    kInitCmdVelSub  = 1U << 2U,
+    kInitEstopSub   = 1U << 3U,
+    kInitOdomPub    = 1U << 4U,
+    kInitImuPub     = 1U << 5U,
+    kInitStatusPub  = 1U << 6U,
+    kInitDebugPub   = 1U << 7U,
+    kInitExecutor   = 1U << 8U,
+};
+uint16_t ros_init_flags = 0U;
 
 ScalarKalman wheel_filters[kWheelCount] = {
     ScalarKalman(0.5F, 0.04F), ScalarKalman(0.5F, 0.04F),
     ScalarKalman(0.5F, 0.04F), ScalarKalman(0.5F, 0.04F),
-};
-ScalarKalman acceleration_filters[3] = {
-    ScalarKalman(0.2F, 0.1F), ScalarKalman(0.2F, 0.1F),
-    ScalarKalman(0.2F, 0.1F),
-};
-ScalarKalman gyro_filters[3] = {
-    ScalarKalman(0.2F, 0.1F), ScalarKalman(0.2F, 0.1F),
-    ScalarKalman(0.2F, 0.1F),
-};
-ScalarKalman quaternion_filters[4] = {
-    ScalarKalman(0.05F, 0.02F), ScalarKalman(0.05F, 0.02F),
-    ScalarKalman(0.05F, 0.02F), ScalarKalman(0.05F, 0.02F),
 };
 ScalarKalman body_velocity_filters[3] = {
     ScalarKalman(0.2F, 0.04F), ScalarKalman(0.2F, 0.04F),
@@ -145,12 +124,57 @@ bool copy_state(RobotState &destination) {
     return true;
 }
 
-void update_state(const RobotState &source) {
-    if (state_mutex == nullptr ||
-        xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) {
-        return;
-    }
-    robot_state = source;
+void update_command_fields(const TwistCommand &twist, bool valid, uint32_t command_ms, bool estop) {
+    if (state_mutex == nullptr || xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) return;
+    robot_state.command_twist = twist;
+    robot_state.command_valid = valid;
+    robot_state.last_command_ms = command_ms;
+    robot_state.estop_active = estop;
+    xSemaphoreGive(state_mutex);
+}
+
+void update_encoder_fields(const float measured[kWheelCount], const float raw[kWheelCount], const int32_t counts[kWheelCount], uint32_t encoder_ms) {
+    if (state_mutex == nullptr || xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) return;
+    memcpy(robot_state.measured_wheel_speed_rad_s, measured, sizeof(robot_state.measured_wheel_speed_rad_s));
+    memcpy(robot_state.raw_wheel_speed_rad_s, raw, sizeof(robot_state.raw_wheel_speed_rad_s));
+    memcpy(robot_state.encoder_counts, counts, sizeof(robot_state.encoder_counts));
+    robot_state.last_encoder_ms = encoder_ms;
+    xSemaphoreGive(state_mutex);
+}
+
+void update_control_fields(const float target[kWheelCount], const float output[kWheelCount], bool command_valid) {
+    if (state_mutex == nullptr || xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) return;
+    memcpy(robot_state.target_wheel_speed_rad_s, target, sizeof(robot_state.target_wheel_speed_rad_s));
+    memcpy(robot_state.motor_output, output, sizeof(robot_state.motor_output));
+    robot_state.command_valid = command_valid;
+    xSemaphoreGive(state_mutex);
+}
+
+void update_imu_fields(const ImuSample &sample, bool fault, uint32_t imu_ms) {
+    if (state_mutex == nullptr || xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) return;
+    robot_state.imu = sample;
+    robot_state.imu_fault = fault;
+    robot_state.last_imu_ms = imu_ms;
+    xSemaphoreGive(state_mutex);
+}
+
+void update_pose_fields(const PoseState &pose) {
+    if (state_mutex == nullptr || xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) return;
+    robot_state.pose = pose;
+    xSemaphoreGive(state_mutex);
+}
+
+void update_telemetry_ms(uint32_t ms) {
+    if (state_mutex == nullptr || xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) return;
+    robot_state.last_telemetry_ms = ms;
+    xSemaphoreGive(state_mutex);
+}
+
+void update_safety_fields(bool estop, bool motor_fault, bool command_valid) {
+    if (state_mutex == nullptr || xSemaphoreTake(state_mutex, pdMS_TO_TICKS(2U)) != pdTRUE) return;
+    robot_state.estop_active = estop;
+    robot_state.motor_fault = motor_fault;
+    robot_state.command_valid = command_valid;
     xSemaphoreGive(state_mutex);
 }
 
@@ -199,18 +223,14 @@ void command_callback(const void *message) {
     TwistCommand twist;
     if (!finite_twist(*received, twist)) {
         if (copy_state(state)) {
-            state.command_valid = false;
-            update_state(state);
+            update_command_fields(state.command_twist, false, state.last_command_ms, state.estop_active);
         }
         return;
     }
     if (!copy_state(state)) {
         return;
     }
-    state.command_twist = twist;
-    state.command_valid = !state.estop_active;
-    state.last_command_ms = RobotHardware::now_ms();
-    update_state(state);
+    update_command_fields(twist, !state.estop_active, RobotHardware::now_ms(), state.estop_active);
 }
 
 void estop_callback(const void *message) {
@@ -220,9 +240,7 @@ void estop_callback(const void *message) {
     if (!copy_state(state)) {
         return;
     }
-    state.estop_active = received->data;
-    state.command_valid = false;
-    update_state(state);
+    update_safety_fields(received->data, state.motor_fault, false);
 }
 
 bool initialize_ros_message_memory() {
@@ -230,107 +248,71 @@ bool initialize_ros_message_memory() {
     memset(&estop_message, 0, sizeof(estop_message));
     memset(&odometry_message, 0, sizeof(odometry_message));
     memset(&imu_message, 0, sizeof(imu_message));
-    memset(&wheel_state_message, 0, sizeof(wheel_state_message));
-    memset(&encoder_counts_message, 0, sizeof(encoder_counts_message));
-    memset(&diagnostics_message, 0, sizeof(diagnostics_message));
     memset(&status_message, 0, sizeof(status_message));
 
-    wheel_state_message.layout.dim.data = wheel_state_dimensions;
-    wheel_state_message.layout.dim.size = 0U;
-    wheel_state_message.layout.dim.capacity = 1U;
-    wheel_state_message.layout.data_offset = 0U;
-    wheel_state_message.data.data = wheel_state_values;
-    wheel_state_message.data.size = kWheelCount * 3U;
-    wheel_state_message.data.capacity = kWheelCount * 3U;
-    encoder_counts_message.data.data = encoder_count_values;
-    encoder_counts_message.data.size = kWheelCount;
-    encoder_counts_message.data.capacity = kWheelCount;
-
-    diagnostics_message.status.data = diagnostic_statuses;
-    diagnostics_message.status.size = 1U;
-    diagnostics_message.status.capacity = 1U;
-    diagnostic_statuses[0].values.data = diagnostic_values;
-    diagnostic_statuses[0].values.size = 0U;
-    diagnostic_statuses[0].values.capacity = kDiagnosticKeyCount;
-    for (uint8_t index = 0U; index < kDiagnosticKeyCount; ++index) {
-        diagnostic_values[index].key.data = diagnostic_key_storage[index];
-        diagnostic_values[index].key.size = 0U;
-        diagnostic_values[index].key.capacity =
-            sizeof(diagnostic_key_storage[index]);
-        diagnostic_values[index].value.data = diagnostic_value_storage[index];
-        diagnostic_values[index].value.size = 0U;
-        diagnostic_values[index].value.capacity =
-            sizeof(diagnostic_value_storage[index]);
-    }
     set_string(odometry_message.header.frame_id, odometry_frame_storage,
                sizeof(odometry_frame_storage), kFrameId);
     set_string(odometry_message.child_frame_id, odometry_child_frame_storage,
                sizeof(odometry_child_frame_storage), kChildFrameId);
     set_string(imu_message.header.frame_id, imu_frame_storage,
-               sizeof(imu_frame_storage), kImuFrameId);
-    set_string(diagnostics_message.header.frame_id, diagnostics_frame_storage,
-               sizeof(diagnostics_frame_storage), "");
-    set_string(diagnostic_statuses[0].name, diagnostic_name_storage,
-               sizeof(diagnostic_name_storage), "stm32_f407vg");
-    set_string(diagnostic_statuses[0].message, diagnostic_message_storage,
-               sizeof(diagnostic_message_storage), "starting");
-    set_string(diagnostic_statuses[0].hardware_id, diagnostic_hardware_storage,
-               sizeof(diagnostic_hardware_storage), "stm32f407vg");
+               sizeof(imu_frame_storage), "imu_link");
     set_string(status_message.data, status_storage, sizeof(status_storage),
                "starting");
     return true;
 }
 
 bool initialize_ros_entities() {
+    ros_init_flags = 0U;
     ros_allocator = rcl_get_default_allocator();
     if (rclc_support_init(&ros_support, 0, nullptr, &ros_allocator) !=
         RCL_RET_OK) {
         return false;
     }
+    ros_init_flags |= kInitSupport;
+    
     if (rclc_node_init_default(&ros_node, kNodeName, "", &ros_support) !=
         RCL_RET_OK) {
         return false;
     }
-#define INIT_PUBLISHER(publisher, type_support, topic) \
+    ros_init_flags |= kInitNode;
+    
+#define INIT_PUBLISHER(publisher, type_support, topic, flag) \
     if (rclc_publisher_init_default( \
             &(publisher), &ros_node, (type_support), (topic)) != RCL_RET_OK) { \
         return false; \
-    }
-#define INIT_SUBSCRIBER(subscriber, type_support, topic) \
+    } else { ros_init_flags |= (flag); }
+#define INIT_SUBSCRIBER(subscriber, type_support, topic, flag) \
     if (rclc_subscription_init_default( \
             &(subscriber), &ros_node, (type_support), (topic)) != RCL_RET_OK) { \
         return false; \
-    }
+    } else { ros_init_flags |= (flag); }
+    
     INIT_SUBSCRIBER(cmd_vel_subscriber,
                     ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
-                    "stm32_cmd_vel");
+                    "stm32_cmd_vel", kInitCmdVelSub);
     INIT_SUBSCRIBER(estop_subscriber,
-                    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool), "estop");
+                    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool), "estop", kInitEstopSub);
     INIT_PUBLISHER(odometry_publisher,
                    ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
-                   "odom");
+                   "wheel/odom", kInitOdomPub);
     INIT_PUBLISHER(imu_publisher,
                    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-                   "imu/data_raw");
-    INIT_PUBLISHER(wheel_state_publisher,
-                   ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
-                   "wheel_state");
-    INIT_PUBLISHER(encoder_counts_publisher,
-                   ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32MultiArray),
-                   "encoder_counts");
-    INIT_PUBLISHER(diagnostics_publisher,
-                   ROSIDL_GET_MSG_TYPE_SUPPORT(diagnostic_msgs, msg,
-                                               DiagnosticArray),
-                   "diagnostics");
+                   "imu/data", kInitImuPub);
     INIT_PUBLISHER(status_publisher,
                    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
-                   "status");
+                   "status", kInitStatusPub);
+    INIT_PUBLISHER(debug_publisher,
+                   ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
+                   "debug/data", kInitDebugPub);
 #undef INIT_PUBLISHER
 #undef INIT_SUBSCRIBER
+    
     if (rclc_executor_init(&ros_executor, &ros_support.context, 2U,
                            &ros_allocator) != RCL_RET_OK) {
         return false;
     }
+    ros_init_flags |= kInitExecutor;
+    
     if (rclc_executor_add_subscription(&ros_executor, &cmd_vel_subscriber,
                                        &cmd_vel_message, &command_callback,
                                        ON_NEW_DATA) != RCL_RET_OK ||
@@ -342,32 +324,6 @@ bool initialize_ros_entities() {
     return true;
 }
 
-void fill_diagnostics(const RobotState &state, uint32_t now) {
-    diagnostic_msgs__msg__DiagnosticStatus &status = diagnostic_statuses[0];
-    status.level = state.estop_active || state.imu_fault ? 2U : 0U;
-    set_string(status.name, diagnostic_name_storage,
-               sizeof(diagnostic_name_storage), "stm32_f407vg");
-    set_string(status.message, diagnostic_message_storage,
-               sizeof(diagnostic_message_storage),
-               state.estop_active ? "estop" :
-               (state.imu_fault ? "imu fault" : "ok"));
-    set_string(status.hardware_id, diagnostic_hardware_storage,
-               sizeof(diagnostic_hardware_storage), "stm32f407vg");
-    status.values.size = kDiagnosticKeyCount;
-    set_string(diagnostic_values[0].key, diagnostic_key_storage[0],
-               sizeof(diagnostic_key_storage[0]), "command_age_ms");
-    snprintf(diagnostic_values[0].value.data,
-             sizeof(diagnostic_value_storage[0]), "%lu",
-             static_cast<unsigned long>(now - state.last_command_ms));
-    diagnostic_values[0].value.size = strlen(diagnostic_values[0].value.data);
-    set_string(diagnostic_values[1].key, diagnostic_key_storage[1],
-               sizeof(diagnostic_key_storage[1]), "imu_fault");
-    snprintf(diagnostic_values[1].value.data,
-             sizeof(diagnostic_value_storage[1]), "%u",
-             state.imu_fault ? 1U : 0U);
-    diagnostic_values[1].value.size = strlen(diagnostic_values[1].value.data);
-}
-
 void publish_telemetry(const RobotState &state) {
     stamp_message(odometry_message.header, odometry_frame_storage,
                   sizeof(odometry_frame_storage), kFrameId);
@@ -375,47 +331,31 @@ void publish_telemetry(const RobotState &state) {
                sizeof(odometry_child_frame_storage), kChildFrameId);
     odometry_message.pose.pose.position.x = state.pose.x_m;
     odometry_message.pose.pose.position.y = state.pose.y_m;
-    odometry_message.pose.pose.orientation.z =
-        sinf(state.pose.yaw_rad * 0.5F);
-    odometry_message.pose.pose.orientation.w =
-        cosf(state.pose.yaw_rad * 0.5F);
+    odometry_message.pose.pose.position.z = 0.0F;
+
+    odometry_message.pose.pose.orientation.x = 0.0F;
+    odometry_message.pose.pose.orientation.y = 0.0F;
+    odometry_message.pose.pose.orientation.z = sinf(state.pose.yaw_rad * 0.5F);
+    odometry_message.pose.pose.orientation.w = cosf(state.pose.yaw_rad * 0.5F);
+
     odometry_message.twist.twist.linear.x = state.pose.vx_mps;
     odometry_message.twist.twist.linear.y = state.pose.vy_mps;
     odometry_message.twist.twist.angular.z = state.pose.wz_rad_s;
     publish_message(odometry_publisher, &odometry_message);
 
     stamp_message(imu_message.header, imu_frame_storage,
-                  sizeof(imu_frame_storage), kImuFrameId);
-    imu_message.linear_acceleration.x = state.imu.linear_accel_mps2[0];
-    imu_message.linear_acceleration.y = state.imu.linear_accel_mps2[1];
-    imu_message.linear_acceleration.z = state.imu.linear_accel_mps2[2];
-    imu_message.angular_velocity.x = state.imu.gyro_rad_s[0];
-    imu_message.angular_velocity.y = state.imu.gyro_rad_s[1];
-    imu_message.angular_velocity.z = state.imu.gyro_rad_s[2];
+                  sizeof(imu_frame_storage), "imu_link");
     imu_message.orientation.x = state.imu.quaternion_xyzw[0];
     imu_message.orientation.y = state.imu.quaternion_xyzw[1];
     imu_message.orientation.z = state.imu.quaternion_xyzw[2];
     imu_message.orientation.w = state.imu.quaternion_xyzw[3];
+    imu_message.angular_velocity.x = state.imu.gyro_rad_s[0];
+    imu_message.angular_velocity.y = state.imu.gyro_rad_s[1];
+    imu_message.angular_velocity.z = state.imu.gyro_rad_s[2];
+    imu_message.linear_acceleration.x = state.imu.linear_accel_mps2[0];
+    imu_message.linear_acceleration.y = state.imu.linear_accel_mps2[1];
+    imu_message.linear_acceleration.z = state.imu.linear_accel_mps2[2];
     publish_message(imu_publisher, &imu_message);
-
-    for (uint8_t index = 0U; index < kWheelCount; ++index) {
-        wheel_state_values[index] = state.measured_wheel_speed_rad_s[index];
-        wheel_state_values[kWheelCount + index] =
-            state.target_wheel_speed_rad_s[index];
-        wheel_state_values[2U * kWheelCount + index] =
-            state.motor_output[index];
-    }
-    publish_message(wheel_state_publisher, &wheel_state_message);
-
-    for (uint8_t index = 0U; index < kWheelCount; ++index) {
-        encoder_count_values[index] = state.encoder_counts[index];
-    }
-    publish_message(encoder_counts_publisher, &encoder_counts_message);
-
-    fill_diagnostics(state, RobotHardware::now_ms());
-    stamp_message(diagnostics_message.header, diagnostics_frame_storage,
-                  sizeof(diagnostics_frame_storage), "");
-    publish_message(diagnostics_publisher, &diagnostics_message);
 
     snprintf(status_storage, sizeof(status_storage), "%s",
              state.estop_active ? "estop" :
@@ -423,32 +363,81 @@ void publish_telemetry(const RobotState &state) {
     set_string(status_message.data, status_storage, sizeof(status_storage),
                status_storage);
     publish_message(status_publisher, &status_message);
+
+    snprintf(debug_storage, sizeof(debug_storage),
+        "{\"raw_ws\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"filt_ws\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"tgt_ws\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"mot_out\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"imu_q\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"body_v\":[%.3f,%.3f,%.3f],"
+        "\"cmd_v\":[%.3f,%.3f,%.3f]}",
+        state.raw_wheel_speed_rad_s[0], state.raw_wheel_speed_rad_s[1], state.raw_wheel_speed_rad_s[2], state.raw_wheel_speed_rad_s[3],
+        state.measured_wheel_speed_rad_s[0], state.measured_wheel_speed_rad_s[1], state.measured_wheel_speed_rad_s[2], state.measured_wheel_speed_rad_s[3],
+        state.target_wheel_speed_rad_s[0], state.target_wheel_speed_rad_s[1], state.target_wheel_speed_rad_s[2], state.target_wheel_speed_rad_s[3],
+        state.motor_output[0], state.motor_output[1], state.motor_output[2], state.motor_output[3],
+        state.imu.quaternion_xyzw[0], state.imu.quaternion_xyzw[1], state.imu.quaternion_xyzw[2], state.imu.quaternion_xyzw[3],
+        state.pose.vx_mps, state.pose.vy_mps, state.pose.wz_rad_s,
+        state.command_twist.vx_mps, state.command_twist.vy_mps, state.command_twist.wz_rad_s);
+    set_string(debug_message.data, debug_storage, sizeof(debug_storage), debug_storage);
+    publish_message(debug_publisher, &debug_message);
+}
+
+void clean_ros_entities() {
+    if (ros_init_flags & kInitExecutor) rclc_executor_fini(&ros_executor);
+    if (ros_init_flags & kInitDebugPub) rcl_publisher_fini(&debug_publisher, &ros_node);
+    if (ros_init_flags & kInitStatusPub) rcl_publisher_fini(&status_publisher, &ros_node);
+    if (ros_init_flags & kInitImuPub) rcl_publisher_fini(&imu_publisher, &ros_node);
+    if (ros_init_flags & kInitOdomPub) rcl_publisher_fini(&odometry_publisher, &ros_node);
+    if (ros_init_flags & kInitEstopSub) rcl_subscription_fini(&estop_subscriber, &ros_node);
+    if (ros_init_flags & kInitCmdVelSub) rcl_subscription_fini(&cmd_vel_subscriber, &ros_node);
+    if (ros_init_flags & kInitNode) rcl_node_fini(&ros_node);
+    if (ros_init_flags & kInitSupport) rclc_support_fini(&ros_support);
+    ros_init_flags = 0U;
 }
 
 void micro_ros_task(void *) {
-    Serial.begin(115200);
     set_microros_serial_transports(Serial);
     vTaskDelay(pdMS_TO_TICKS(2000U));
-    if (!initialize_ros_message_memory() || !initialize_ros_entities()) {
-        for (;;) {
+    for (;;) {
+        while (!initialize_ros_message_memory() || !initialize_ros_entities()) {
+            clean_ros_entities();
             vTaskDelay(pdMS_TO_TICKS(1000U));
         }
-    }
-    TickType_t wake_time = xTaskGetTickCount();
-    uint32_t last_publish_ms = RobotHardware::now_ms();
-    for (;;) {
-        rclc_executor_spin_some(&ros_executor, RCL_MS_TO_NS(2));
-        const uint32_t now = RobotHardware::now_ms();
-        if (now - last_publish_ms >= kTelemetryPeriodMs) {
-            RobotState state;
-            if (copy_state(state)) {
-                publish_telemetry(state);
-                state.last_telemetry_ms = now;
-                update_state(state);
+        TickType_t wake_time = xTaskGetTickCount();
+        uint32_t last_publish_ms = RobotHardware::now_ms();
+#if !defined(STM32_RENODE_SIM)
+        uint32_t last_ping_ms = RobotHardware::now_ms();
+        uint8_t ping_failures = 0U;
+#endif
+        for (;;) {
+            rclc_executor_spin_some(&ros_executor, RCL_MS_TO_NS(2));
+            const uint32_t now = RobotHardware::now_ms();
+            if (now - last_publish_ms >= kTelemetryPeriodMs) {
+                RobotState state;
+                if (copy_state(state)) {
+                    publish_telemetry(state);
+                    update_telemetry_ms(now);
+                }
+                last_publish_ms = now;
             }
-            last_publish_ms = now;
+#if !defined(STM32_RENODE_SIM)
+            if (now - last_ping_ms >= 1000U) {
+                last_ping_ms = now;
+                if (rmw_uros_ping_agent(100, 1) != RMW_RET_OK) {
+                    ping_failures++;
+                    if (ping_failures >= 3U) {
+                        clean_ros_entities();
+                        break;
+                    }
+                } else {
+                    ping_failures = 0U;
+                }
+            }
+#endif
+            vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(2U));
         }
-        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(2U));
+        vTaskDelay(pdMS_TO_TICKS(1000U));
     }
 }
 
@@ -501,7 +490,7 @@ void control_task(void *) {
             if (command_stale) {
                 state.command_valid = false;
             }
-            update_state(state);
+            update_control_fields(state.target_wheel_speed_rad_s, state.motor_output, state.command_valid);
         }
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(kControlPeriodMs));
     }
@@ -523,14 +512,14 @@ void encoder_task(void *) {
                 const float raw_speed = delta_counts * 6.28318530718F /
                     (static_cast<float>(kEncoderCountsPerRevolution) *
                      safe_delta);
+                state.raw_wheel_speed_rad_s[index] = raw_speed;
                 state.measured_wheel_speed_rad_s[index] =
                     wheel_filters[index].update(raw_speed, safe_delta);
                 state.encoder_counts[index] = counts;
             }
-            state.last_encoder_ms = now;
             RobotHardware::update_simulation(state.target_wheel_speed_rad_s,
                                              safe_delta);
-            update_state(state);
+            update_encoder_fields(state.measured_wheel_speed_rad_s, state.raw_wheel_speed_rad_s, state.encoder_counts, now);
         }
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(kEncoderPeriodMs));
     }
@@ -538,39 +527,30 @@ void encoder_task(void *) {
 
 void imu_task(void *) {
     TickType_t wake_time = xTaskGetTickCount();
+    uint32_t imu_last_valid_ms = RobotHardware::now_ms();
     for (;;) {
         RobotState state;
         if (copy_state(state)) {
             ImuSample sample;
+            bool fault = state.imu_fault;
             if (RobotHardware::read_imu(sample)) {
-                for (uint8_t index = 0U; index < 3U; ++index) {
-                    sample.linear_accel_mps2[index] = acceleration_filters[index]
-                        .update(sample.linear_accel_mps2[index],
-                                kImuPeriodMs * 0.001F);
-                    sample.gyro_rad_s[index] = gyro_filters[index].update(
-                        sample.gyro_rad_s[index], kImuPeriodMs * 0.001F);
-                }
-                float quaternion_norm = 0.0F;
-                for (uint8_t index = 0U; index < 4U; ++index) {
-                    sample.quaternion_xyzw[index] = quaternion_filters[index]
-                        .update(sample.quaternion_xyzw[index],
-                                kImuPeriodMs * 0.001F);
-                    quaternion_norm += sample.quaternion_xyzw[index] *
-                        sample.quaternion_xyzw[index];
-                }
+                float quaternion_norm = sample.quaternion_xyzw[0] * sample.quaternion_xyzw[0] +
+                                        sample.quaternion_xyzw[1] * sample.quaternion_xyzw[1] +
+                                        sample.quaternion_xyzw[2] * sample.quaternion_xyzw[2] +
+                                        sample.quaternion_xyzw[3] * sample.quaternion_xyzw[3];
                 if (quaternion_norm > 0.01F) {
                     quaternion_norm = sqrtf(quaternion_norm);
                     for (uint8_t index = 0U; index < 4U; ++index) {
                         sample.quaternion_xyzw[index] /= quaternion_norm;
                     }
                 }
-                state.imu = sample;
-                state.imu_fault = false;
+                imu_last_valid_ms = RobotHardware::now_ms();
+                fault = false;
             } else {
-                state.imu_fault = true;
+                fault = (RobotHardware::now_ms() - imu_last_valid_ms) > 500U;
+                sample = state.imu;  // keep previous
             }
-            state.last_imu_ms = RobotHardware::now_ms();
-            update_state(state);
+            update_imu_fields(sample, fault, RobotHardware::now_ms());
         }
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(kImuPeriodMs));
     }
@@ -589,23 +569,34 @@ void odometry_task(void *) {
                     wheel_twist.vx_mps, delta_sec);
                 const float vy = body_velocity_filters[1].update(
                     wheel_twist.vy_mps, delta_sec);
-                float wz = body_velocity_filters[2].update(
-                    wheel_twist.wz_rad_s, delta_sec);
-                if (!state.imu_fault && isfinite(state.imu.gyro_rad_s[2])) {
-                    wz = body_velocity_filters[2].update(
-                        state.imu.gyro_rad_s[2], delta_sec);
+                const float raw_wz = (!state.imu_fault && isfinite(state.imu.gyro_rad_s[2]))
+                                         ? state.imu.gyro_rad_s[2]
+                                         : wheel_twist.wz_rad_s;
+                const float wz = body_velocity_filters[2].update(raw_wz, delta_sec);
+
+                const float qx = state.imu.quaternion_xyzw[0];
+                const float qy = state.imu.quaternion_xyzw[1];
+                const float qz = state.imu.quaternion_xyzw[2];
+                const float qw = state.imu.quaternion_xyzw[3];
+                const float norm_sq = qx * qx + qy * qy + qz * qz + qw * qw;
+                if (!state.imu_fault && norm_sq > 0.5F) {
+                    const float siny_cosp = 2.0F * (qw * qz + qx * qy);
+                    const float cosy_cosp = 1.0F - 2.0F * (qy * qy + qz * qz);
+                    state.pose.yaw_rad = atan2f(siny_cosp, cosy_cosp);
+                } else {
+                    state.pose.yaw_rad = wrap_angle(
+                        state.pose.yaw_rad + wz * delta_sec);
                 }
+
                 const float cos_yaw = cosf(state.pose.yaw_rad);
                 const float sin_yaw = sinf(state.pose.yaw_rad);
                 state.pose.x_m += (cos_yaw * vx - sin_yaw * vy) * delta_sec;
                 state.pose.y_m += (sin_yaw * vx + cos_yaw * vy) * delta_sec;
-                state.pose.yaw_rad = wrap_angle(
-                    state.pose.yaw_rad + wz * delta_sec);
                 state.pose.vx_mps = vx;
                 state.pose.vy_mps = vy;
                 state.pose.wz_rad_s = wz;
             }
-            update_state(state);
+            update_pose_fields(state.pose);
         }
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(kOdometryPeriodMs));
     }
@@ -613,18 +604,26 @@ void odometry_task(void *) {
 
 void safety_task(void *) {
     for (;;) {
+        RobotHardware::feed_watchdog();
         RobotState state;
         if (copy_state(state)) {
             const uint32_t now = RobotHardware::now_ms();
             const bool physical_estop = RobotHardware::read_estop();
+            const bool motor_fault = RobotHardware::read_motor_fault();
             const bool command_stale = now - state.last_command_ms >
                 state.settings.command_timeout_ms;
-            if (physical_estop || command_stale) {
-                state.estop_active = state.estop_active || physical_estop;
+
+            state.motor_fault = motor_fault;
+
+            if (physical_estop || motor_fault || command_stale) {
+                state.estop_active = state.estop_active || physical_estop ||
+                    motor_fault;
                 state.command_valid = false;
                 stop_motors();
-                update_state(state);
             }
+            RobotHardware::set_status_indicators(
+                state.estop_active, motor_fault, command_stale);
+            update_safety_fields(state.estop_active, state.motor_fault, state.command_valid);
         }
         vTaskDelay(pdMS_TO_TICKS(20U));
     }
@@ -634,6 +633,7 @@ void safety_task(void *) {
 
 void setup() {
     RobotHardware::initialize();
+    RobotHardware::init_watchdog();
     RobotHardware::initialize_imu();
     initialize_robot_state(robot_state);
     const uint32_t now = RobotHardware::now_ms();

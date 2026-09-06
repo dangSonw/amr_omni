@@ -14,6 +14,10 @@ void ScalarKalman::reset(float estimate, float covariance) {
 }
 
 float ScalarKalman::update(float measurement, float delta_sec) {
+    if (!isfinite(measurement)) {
+        return estimate_;
+    }
+
     if (!initialized_) {
         reset(measurement, 1.0F);
         return estimate_;

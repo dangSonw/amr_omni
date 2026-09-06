@@ -16,7 +16,7 @@ export function WheelDiagnostics({ wheels }: WheelDiagnosticsProps) {
   ];
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex flex-col rounded border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
@@ -42,7 +42,7 @@ export function WheelDiagnostics({ wheels }: WheelDiagnosticsProps) {
           return (
             <div
               key={item.id}
-              className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 dark:border-slate-800/80 dark:bg-slate-800/40"
+              className="flex flex-col justify-between rounded-sm border border-slate-200/80 bg-slate-50/60 p-3 dark:border-slate-800/80 dark:bg-slate-800/40"
             >
               {/* Card top */}
               <div>

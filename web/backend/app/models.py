@@ -49,6 +49,24 @@ class ImuTelemetry(BaseModel):
     gyro_x: float = 0.0
     gyro_y: float = 0.0
     gyro_z: float = 0.0
+    qx: float = 0.0
+    qy: float = 0.0
+    qz: float = 0.0
+    qw: float = 1.0
+
+
+class DebugTelemetry(BaseModel):
+    raw_wheel_speed_rad_s: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    filtered_wheel_speed_rad_s: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    target_wheel_speed_rad_s: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    motor_output: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    imu_quaternion_xyzw: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 1.0])
+    body_vx_mps: float = 0.0
+    body_vy_mps: float = 0.0
+    body_wz_rad_s: float = 0.0
+    cmd_vx_mps: float = 0.0
+    cmd_vy_mps: float = 0.0
+    cmd_wz_rad_s: float = 0.0
 
 
 class LidarTelemetry(BaseModel):
@@ -102,3 +120,40 @@ class RobotConfig(BaseModel):
     motor_ki: float = 0.25
     motor_kd: float = 0.0005
     debug_telemetry: bool = True
+
+
+class NavGoalRequest(BaseModel):
+    x: float = Field(..., description="Tọa độ mục tiêu X (m)")
+    y: float = Field(..., description="Tọa độ mục tiêu Y (m)")
+    theta_rad: float = Field(0.0, description="Góc quay mục tiêu (rad)")
+    frame_id: str = Field("map", description="Frame ID tọa độ (map/odom)")
+
+
+class Waypoint(BaseModel):
+    x: float
+    y: float
+    theta_rad: float = 0.0
+
+
+class WaypointsRequest(BaseModel):
+    waypoints: List[Waypoint]
+    loop: bool = False
+
+
+class MapMetadata(BaseModel):
+    resolution: float = 0.05
+    width: int = 0
+    height: int = 0
+    origin_x: float = 0.0
+    origin_y: float = 0.0
+
+
+class PathTelemetry(BaseModel):
+    global_path: List[List[float]] = Field(default_factory=list)
+    local_path: List[List[float]] = Field(default_factory=list)
+    obstacles: List[List[float]] = Field(default_factory=list)
+
+
+class SaveMapRequest(BaseModel):
+    map_name: str = Field("map", description="Tên file bản đồ cần lưu")
+

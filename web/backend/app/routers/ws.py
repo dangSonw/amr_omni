@@ -16,7 +16,7 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
             raw_text = await websocket.receive_text()
             try:
                 data = json.loads(raw_text)
-                await telemetry_hub.handle_client_message(data)
+                await telemetry_hub.handle_client_message(data, websocket=websocket)
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:

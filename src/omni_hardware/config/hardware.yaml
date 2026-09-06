@@ -6,7 +6,6 @@ stm32_bridge:
     command_input_topic: safe_cmd_vel
     micro_ros_command_topic: stm32_cmd_vel
     status_topic: status
-    diagnostics_topic: diagnostics
     hardware_status_topic: hardware_status
     max_linear_speed_mps: 0.54
     max_angular_speed_rad_s: 3.0

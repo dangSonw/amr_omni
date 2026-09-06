@@ -10,11 +10,15 @@ setup(
         ('share/ament_index/resource_index/packages',
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', ['config/safety.yaml']),
+        ('share/' + package_name + '/config', [
+            'config/safety.yaml',
+            'config/twist_mux.yaml',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     entry_points={'console_scripts': [
         'command_watchdog = omni_safety.command_watchdog:main',
+        'safety_zone_node = omni_safety.safety_zone_node:main',
     ]},
 )

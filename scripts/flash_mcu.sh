@@ -35,9 +35,15 @@ Options:
 
 Examples:
   scripts/flash_mcu.sh --mcu stm32f4 --device /dev/serial/by-id/... \
+    --firmware firmware.elf --backend pio --project stm32_f407vg_arduino_sim --dry-run
+  scripts/flash_mcu.sh --mcu stm32f4 --device /dev/serial/by-id/... \
     --firmware firmware.elf --backend pio --project stm32_f407vg_arduino_sim --yes
+  scripts/flash_mcu.sh --mcu stm32f4 --device default --firmware app.elf \
+    --backend openocd --yes
   scripts/flash_mcu.sh --mcu stm32f4 --device STLINK_SERIAL --firmware app.bin \
     --backend st-flash --yes
+  scripts/flash_mcu.sh --mcu stm32f4 --device 0483:df11 --firmware app.bin \
+    --backend dfu-util --yes
 EOF
 }
 

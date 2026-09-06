@@ -26,7 +26,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/build.sh [options]
 
-Build and optionally test ROS 2, PlatformIO firmware, or both. ROS 1 and ROS 2
+Build and optionally test ROS 2 packages, PlatformIO firmware, Web interface
+(Next.js static export + FastAPI), or all components combined. ROS 1 and ROS 2
 artifacts are kept separate. Firmware projects without source are never
 reported as successful; use --skip-empty only when a scaffold is intentionally
 being skipped.
@@ -38,7 +39,7 @@ Options:
   --package NAME                 Select one ROS package (repeatable)
   --test                         Run tests after building
   --test-only                    Run tests without building first
-  --clean                        Remove selected ROS build/install/log dirs
+  --clean                        Remove selected build/install/log dirs
   --skip-empty                   Skip firmware projects with no source/tests
   --ros-distro DISTRO            ROS distribution (default: jazzy)
   --build-base PATH              ROS colcon build directory
@@ -50,8 +51,13 @@ Options:
 Examples:
   scripts/build.sh --component ros2 --test
   scripts/build.sh --component firmware --firmware stm32_f407vg_arduino_sim
-  scripts/build.sh --component all --test --skip-empty
-  scripts/build.sh --component ros2 --test-only --package omni_control
+  scripts/build.sh --component web                       # Build Next.js bundle for FastAPI
+  scripts/build.sh --component web --test                # Build frontend and test FastAPI backend APIs
+  scripts/build.sh --component web --clean               # Clean frontend build artifacts (.next, out, static)
+  scripts/build.sh --component all --test --skip-empty   # Build & test ROS 2, firmware, and web
+  scripts/build.sh --component ros2 --package omni_control --test
+  scripts/build.sh --component ros2 --test-only --package omni_safety
+  scripts/build.sh --component ros2 --clean --test       # Clean ROS 2 build dirs and rebuild with tests
 EOF
 }
 

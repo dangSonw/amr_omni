@@ -36,10 +36,11 @@ Options:
   -h, --help      Show this help message
 
 Examples:
-  scripts/calibrate.sh odometry
-  scripts/calibrate.sh imu --duration 10
-  scripts/calibrate.sh motors --dry-run
   scripts/calibrate.sh all
+  scripts/calibrate.sh odometry --dist 2.0 --speed 0.3
+  scripts/calibrate.sh imu --duration 10
+  scripts/calibrate.sh lidar --duration 10
+  scripts/calibrate.sh motors --dry-run
 HELP_EOF
 }
 

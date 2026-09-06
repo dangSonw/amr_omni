@@ -38,7 +38,9 @@ Options for 'play':
 Examples:
   scripts/bag.sh record
   scripts/bag.sh record test_run_01 --duration 30
+  scripts/bag.sh record full_dump --all-topics --duration 60
   scripts/bag.sh play bags/test_run_01 --rate 1.5
+  scripts/bag.sh play bags/test_run_01 --loop
   scripts/bag.sh info bags/test_run_01
 HELP_EOF
 }
@@ -89,7 +91,7 @@ bag_record() {
 
   local -a topics=(
     /cmd_vel /safe_cmd_vel /odom /imu/data_raw /scan
-    /tf /tf_static /wheel_state /diagnostics
+    /tf /tf_static /wheel_state /diagnostics /debug/data
   )
 
   if command -v ros2 >/dev/null 2>&1; then

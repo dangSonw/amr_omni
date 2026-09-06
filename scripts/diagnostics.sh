@@ -33,10 +33,13 @@ Options:
   -h, --help      Show this help message
 
 Examples:
-  scripts/diagnostics.sh
-  scripts/diagnostics.sh battery
-  scripts/diagnostics.sh jetson
-  scripts/diagnostics.sh safety --continuous
+  scripts/diagnostics.sh                         # Run all checks once
+  scripts/diagnostics.sh jetson                  # Check Jetson CPU, RAM, thermal
+  scripts/diagnostics.sh hardware                # Check /dev/amr_* USB devices
+  scripts/diagnostics.sh network                 # Check Wi-Fi and ROS connectivity
+  scripts/diagnostics.sh battery                 # Check LiPo voltage and cell status
+  scripts/diagnostics.sh safety --continuous     # Continuous safety loop (default: 3s)
+  scripts/diagnostics.sh all --continuous --interval 5
 HELP_EOF
 }
 

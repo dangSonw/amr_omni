@@ -26,10 +26,12 @@ Options:
   -h, --help         Show this help message
 
 Examples:
-  scripts/run_web.sh                     # Start production backend + static UI
+  scripts/run_web.sh                     # Start production backend + static UI (:8000)
   scripts/run_web.sh --mode ros2         # Start with native ROS 2 Jazzy bridge
+  scripts/run_web.sh --port 8080         # Bind backend to custom port 8080
+  scripts/run_web.sh --host 127.0.0.1    # Bind backend to localhost only
   scripts/run_web.sh --dev               # Start with Next.js hot-reload on :3000
-  scripts/run_web.sh --build             # Rebuild frontend and serve
+  scripts/run_web.sh --build             # Rebuild frontend bundle and serve
 EOF
 }
 

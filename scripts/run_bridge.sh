@@ -12,9 +12,16 @@ usage() {
   cat <<'HELP_EOF'
 Usage: scripts/run_bridge.sh [options]
 
+Bridge communication between ROS 1 Melodic (Jetson Nano) and ROS 2 Jazzy (Host/WSL2).
+Uses ros1_bridge dynamic_bridge if available, or falls back to Rosbridge WebSocket mode.
+
 Options:
-  --master-uri URI  Set ROS 1 master URI
+  --master-uri URI  Set ROS 1 master URI (default: http://localhost:11311)
   -h, --help        Show this help message
+
+Examples:
+  scripts/run_bridge.sh
+  scripts/run_bridge.sh --master-uri http://192.168.1.100:11311
 HELP_EOF
 }
 

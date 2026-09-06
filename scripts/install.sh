@@ -29,14 +29,18 @@ Targets:
   service     Install /etc/systemd/system/amr_robot.service for autostart
 
 Options:
-  --user USER     System user for systemd service execution (default: current user)
-  --dry-run       Print generated configurations without writing to /etc
-  --uninstall     Remove installed udev rules and systemd service
-  -h, --help      Show this help message
+  --user USER          System user for systemd service execution (default: current user)
+  --ros-workspace PATH Workspace path passed to run_robot.sh (default: /opt/ros1_ws)
+  --ros-package NAME   ROS package for launch file (default: amr_bringup)
+  --ros-launch FILE    Launch file name (default: robot.launch)
+  --dry-run            Print generated configurations without writing to /etc
+  --uninstall          Remove installed udev rules and systemd service
+  -h, --help           Show this help message
 
 Examples:
   scripts/install.sh udev
   scripts/install.sh service --user robot
+  scripts/install.sh service --ros-workspace /home/robot/catkin_ws --ros-package amr_bringup --ros-launch robot.launch
   scripts/install.sh all
   scripts/install.sh --uninstall
 HELP_EOF

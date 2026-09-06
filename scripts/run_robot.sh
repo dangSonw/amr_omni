@@ -12,9 +12,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/run_robot.sh --workspace PATH --package NAME --launch FILE [options]
 
-Run the ROS 1 hardware bringup on the Jetson Nano only. The repository does
-not currently contain a ROS 1 bringup package, so this command fails clearly
-until an external/real ROS 1 workspace and launch file are supplied.
+Run the ROS 1 hardware bringup on the Jetson Nano (aarch64, Ubuntu 18.04,
+ROS Melodic). A Catkin bringup package is provided in src/omni_bringup_ros1,
+or an external ROS 1 Catkin workspace can be supplied.
 
 Options:
   --workspace PATH       Catkin workspace containing devel/setup.bash
@@ -32,6 +32,12 @@ Options:
 Safety:
   This script never runs as root and never enables actuators implicitly. Verify
   E-stop, watchdog, device, battery and command-timeout behavior before use.
+
+Examples:
+  scripts/run_robot.sh --workspace /opt/ros1_ws --package omni_bringup_ros1 --launch robot.launch --dry-run
+  scripts/run_robot.sh --workspace /opt/ros1_ws --package amr_bringup --launch robot.launch --web
+  scripts/run_robot.sh --workspace /opt/ros1_ws --package amr_bringup --launch robot.launch --no-roscore --web-port 8080
+  scripts/run_robot.sh --workspace /home/robot/catkin_ws --package amr_bringup --launch robot.launch --ros-arg use_sim_time:=false
 EOF
 }
 

@@ -13,32 +13,39 @@ PlatformIO firmware.
 
 ### Đã có
 
-- 6 ROS 2 Python packages trong `src/`: `omni_bringup`, `omni_control`,
-  `omni_description`, `omni_hardware`, `omni_safety`, `omni_simulation`.
+- 9 ROS 2 Python packages trong `src/`: `omni_bringup`, `omni_control`,
+  `omni_description`, `omni_hardware`, `omni_localization`, `omni_navigation`,
+  `omni_perception`, `omni_safety`, `omni_simulation`.
+- 1 ROS 1 bringup package trong `src/omni_bringup_ros1` (được gắn cờ `COLCON_IGNORE`
+  để tránh xung đột khi build ROS 2 Jazzy; phục vụ môi trường Catkin trên Jetson Nano Melodic).
 - ROS 2 overlay có thể build bằng `colcon` trên WSL2 Ubuntu 24.04 amd64.
 - Unit/invariant tests cho kinematics, watchdog policy, mô tả Xacro, world và
   ROS/micro-ROS topic contract.
+- Firmware STM32F407VG Discovery hoàn chỉnh (`firmware/stm32_f407vg_arduino_sim`) chạy
+  FreeRTOS + micro-ROS với đầy đủ cơ chế an toàn: khóa trường dữ liệu độc lập (chống race condition),
+  bảo vệ NaN cho bộ lọc Kalman, chống derivative kick cho bộ điều khiển PID 4 bánh xe,
+  timeout phát hiện lỗi IMU 500ms, bitmask an toàn khi hủy micro-ROS entities, và publisher `/debug/data`.
+- Node mô phỏng `stm32_simulator` tích hợp bộ điều khiển PID kín (SimplePID), phát dữ liệu
+  telemetry `/debug/data` JSON và chuẩn hóa hằng số ma trận hiệp phương sai.
+- Giao diện Web Dashboard & Debug Monitor chuyên nghiệp (FastAPI + Next.js + Recharts)
+  theo phong cách phẳng (flat/industrial style, bo góc tối thiểu `rounded-sm`), hỗ trợ
+  3 tab: Control Cockpit, System Config, Debug Monitor (đồ thị vận tốc 4 bánh xe trước/sau Kalman,
+  Quaternion IMU, vận tốc góc, vận tốc dài đặt vs thực tế, và ma trận luồng dữ liệu).
+- Bộ 12 script Bash tham số hóa hoàn chỉnh: `setup.sh`, `build.sh`, `run_sim.sh`,
+  `run_robot.sh`, `flash_mcu.sh`, `run_web.sh`, `run_bridge.sh`, `calibrate.sh`,
+  `diagnostics.sh`, `bag.sh`, `save_map.sh`, `install.sh`.
 - Renode đã hỗ trợ các platform STM32 và có script mẫu cài tại `/opt/renode`.
-- Hai PlatformIO project mẫu cho STM32F407VG Discovery:
-  - `firmware/stm32_f407vg_arduino_sim`
-  - `firmware/stm32_f407vg_stm3cube_sim`
-- Bộ script dùng tham số, không cần tạo thêm một file script cho mỗi board:
-  `setup.sh`, `build.sh`, `run_sim.sh`, `run_robot.sh`, `flash_mcu.sh`.
 
-### Chưa triển khai / giới hạn quan trọng
+### Giới hạn quan trọng và lưu ý
 
-- PlatformIO project `stm32_f407vg_arduino_sim` chứa firmware FreeRTOS +
-  micro-ROS; `stm32_f407vg_stm3cube_sim` vẫn là configuration scaffold.
+- PlatformIO project `stm32_f407vg_arduino_sim` chứa source firmware hoàn chỉnh;
+  `stm32_f407vg_stm3cube_sim` là configuration scaffold.
 - `firmware/stm32f1/README.md` và `firmware/stm32f4/README.md` chỉ là placeholder,
   không phải project build được.
-- Chưa có ROS 1 bringup package trong repository và chưa xác minh trên Jetson
-  Nano thật. `run_robot.sh` yêu cầu workspace/package/launch ROS 1 bên ngoài.
-- Renode mô phỏng SoC/peripheral STM32 độc lập. Nó chưa tự động nối với ROS 2
-  Gazebo hoặc giả lập serial STM32; đường Gazebo dùng `stm32_simulator` để mô
-  phỏng cùng thuật toán và topic, còn HIL/USB thật vẫn cần `micro_ros_agent`.
-- Gazebo dùng `stm32_simulator` để mô phỏng đúng ranh giới STM32: node nhận
-  `stm32_cmd_vel`, tính động học ngược, chạy bốn PID tốc độ và phát lệnh
-  actuator tới Gazebo; sensor joint/IMU đi ngược qua động học thuận và Kalman.
+- Package `omni_bringup_ros1` dùng cho Jetson Nano (ROS 1 Melodic); việc khởi động
+  robot thực tế qua `run_robot.sh` yêu cầu môi trường aarch64 và workspace Catkin tương ứng.
+- Renode mô phỏng SoC/peripheral STM32 độc lập. Đường Gazebo dùng `stm32_simulator` để mô
+  phỏng cùng thuật toán và topic, còn HIL/USB thật kết nối qua `micro_ros_agent serial`.
 - Gazebo Harmonic dùng `gpu_lidar` cho `/scan` ở cả visual và headless profile;
   headless vẫn cần EGL/DRM render backend và quyền truy cập `/dev/dri`. Host
   không có backend render khả dụng không thể xác minh `/scan` thật, và project
@@ -169,6 +176,21 @@ chọn:
 ./scripts/install.sh --help
 ```
 
+| Script | Vai trò chính | Lệnh thông dụng |
+|---|---|---|
+| [`setup.sh`](scripts/setup.sh) | Kiểm tra host, dependency, cài đặt PlatformIO và flash tools | `./scripts/setup.sh --check` |
+| [`build.sh`](scripts/build.sh) | Build & test ROS 2 packages, PlatformIO firmware, Web bundle | `./scripts/build.sh --component all --test` |
+| [`run_sim.sh`](scripts/run_sim.sh) | Chạy mô phỏng Gazebo Harmonic, Renode STM32 hoặc cả hai | `./scripts/run_sim.sh --headless` |
+| [`run_robot.sh`](scripts/run_robot.sh) | Chạy hardware bringup trên Jetson Nano (ROS 1 Melodic aarch64) | `./scripts/run_robot.sh --workspace /opt/ros1_ws --package amr_bringup --launch robot.launch` |
+| [`flash_mcu.sh`](scripts/flash_mcu.sh) | Nạp firmware an toàn cho STM32 qua PlatformIO/OpenOCD/ST-Link/DFU | `./scripts/flash_mcu.sh --mcu stm32f4 --device /dev/amr_mcu --firmware app.elf --yes` |
+| [`run_web.sh`](scripts/run_web.sh) | Khởi động Web Dashboard (FastAPI backend + Next.js frontend) | `./scripts/run_web.sh` |
+| [`run_bridge.sh`](scripts/run_bridge.sh) | Cầu nối giao tiếp hai chiều ROS 1 (Jetson) <-> ROS 2 (Host) | `./scripts/run_bridge.sh` |
+| [`calibrate.sh`](scripts/calibrate.sh) | Hiệu chuẩn bán kính bánh xe, IMU gyro bias và quét LiDAR | `./scripts/calibrate.sh odometry` |
+| [`diagnostics.sh`](scripts/diagnostics.sh) | Chẩn đoán toàn diện sức khỏe Jetson, cổng USB, pin LiPo và an toàn | `./scripts/diagnostics.sh all` |
+| [`bag.sh`](scripts/bag.sh) | Ghi, phát lại và kiểm tra metadata rosbag các topic cảm biến | `./scripts/bag.sh record test01` |
+| [`save_map.sh`](scripts/save_map.sh) | Lưu bản đồ OccupancyGrid Nav2 thành file YAML + PGM | `./scripts/save_map.sh my_map` |
+| [`install.sh`](scripts/install.sh) | Cài đặt udev rules nhận diện USB cố định và systemd autostart | `./scripts/install.sh all` |
+
 Quy ước exit code:
 
 - `0`: workflow/kiểm tra thành công;
@@ -176,7 +198,7 @@ Quy ước exit code:
 - `2`: usage/syntax hoặc điều kiện bắt buộc không hợp lệ (chủ yếu `setup.sh`).
 
 Script không tự build khi run, không tự flash, không tự enable actuator và
-không chạy bằng root.
+không chạy bằng root. Tất cả script đều hỗ trợ cờ `-h` / `--help` để xem đầy đủ hướng dẫn sử dụng.
 
 ## 5. Build ROS 2
 
@@ -257,7 +279,36 @@ Xóa artifact ROS rồi build sạch:
 `--clean` chỉ xóa ba thư mục ROS chuẩn nằm trong project root. Không dùng
 `--clean` với `--test-only`.
 
-### 5.4. Lưu artifact sang thư mục khác
+### 5.4. Build Web Dashboard (Next.js Bundle + FastAPI Static)
+
+Giao diện Web bao gồm Next.js frontend (TypeScript, Tailwind, Recharts) và FastAPI backend. Lệnh build sẽ biên dịch frontend thành static bundle và đồng bộ vào thư mục `web/backend/static`:
+
+```bash
+# Build frontend static bundle vào web/backend/static
+./scripts/build.sh --component web
+
+# Build frontend và chạy bộ test API backend FastAPI
+./scripts/build.sh --component web --test
+
+# Dọn dẹp các thư mục build của Web (.next, out, static)
+./scripts/build.sh --component web --clean
+```
+
+### 5.5. Build toàn bộ hệ thống (ROS 2, Firmware & Web)
+
+Để build và kiểm thử tích hợp tất cả các thành phần trong repository:
+
+```bash
+# Build và chạy test cho toàn bộ: ROS 2 + Firmware + Web
+./scripts/build.sh --component all --test --skip-empty
+
+# Xóa toàn bộ artifact và build lại sạch từ đầu
+./scripts/build.sh --component all --clean --test --skip-empty
+```
+
+> **Lưu ý về `--skip-empty`:** Dùng cờ này để bỏ qua các scaffold PlatformIO chưa có source (`stm32_f407vg_stm3cube_sim`). Nếu không có `--skip-empty`, `build.sh` sẽ đánh dấu SKIP cho project trống và không báo lỗi.
+
+### 5.6. Lưu artifact sang thư mục khác
 
 Các path tương đối được tính từ repository root. Path tuyệt đối cũng được hỗ
 trợ cho build/test thường; chỉ nên dùng path ngoài repository khi không dùng
@@ -634,10 +685,9 @@ dùng `--no-roscore` nếu ROS master đã được quản lý bên ngoài.
 
 ```bash
 bash -n scripts/*.sh
-for script in scripts/setup.sh scripts/build.sh scripts/run_sim.sh \
-             scripts/run_robot.sh scripts/flash_mcu.sh; do
+for script in scripts/*.sh; do
   "$script" --help >/dev/null
- done
+done
 ```
 
 ### 11.2. Workflow ROS 2 toàn bộ
@@ -672,7 +722,9 @@ Khi STM32Cube source/test đã được thêm, bỏ `--skip-empty`; khi đó m�
 
 Trên WSL2 Ubuntu 24.04 amd64 của project:
 
-- `colcon build` ROS 2: 6 packages finished.
+- `colcon build` ROS 2: 9 packages finished (`omni_bringup`, `omni_control`,
+  `omni_description`, `omni_hardware`, `omni_localization`, `omni_navigation`,
+  `omni_perception`, `omni_safety`, `omni_simulation`).
 - Renode `1.16.1.16973`: chỉ xác nhận được việc nạp platform; firmware
   micro-ROS/peripheral device model cần một smoke test riêng.
 - PlatformIO `pio project config`: các project parse được.
@@ -727,28 +779,160 @@ Topic `debug/data` (`std_msgs/String` định dạng JSON) cung cấp dữ liệ
 Khởi động giao diện điều khiển và giám sát:
 
 ```bash
+# Chế độ tiêu chuẩn: FastAPI backend phục vụ bundle frontend tĩnh tại cổng 8000
 ./scripts/run_web.sh
+
+# Chạy với cổng hoặc host tùy chỉnh
+./scripts/run_web.sh --port 8080 --host 0.0.0.0
+
+# Chế độ phát triển (Hot-reload Next.js dev server tại cổng 3000)
+./scripts/run_web.sh --dev
+
+# Tự động build lại frontend bundle trước khi chạy
+./scripts/run_web.sh --build
 ```
 
-- Mở trình duyệt tại `http://localhost:8000` (hoặc port `3000` nếu chạy `--dev`).
-- Giao diện thiết kế phẳng (flat/industrial style, bo góc tối thiểu `rounded-sm`) với 3 tabs:
-  1. **Control Cockpit**: Bản đồ 2D SLAM, chùm quét LiDAR, Camera live feed, telemetry động học và điều khiển phím WASD (tần số lệnh 12.5 Hz giữ an toàn cho watchdog).
-  2. **System Config**: Hiệu chỉnh trực tiếp tham số động học, giới hạn vận tốc, timeout watchdog và hệ số PID vòng kín motor.
-  3. **Debug Monitor**: Hiển thị đồ thị thời gian thực (Recharts) gồm:
-     - 4 đồ thị tốc độ bánh xe (so sánh song song Raw vs Filtered Kalman vs Target);
-     - IMU Quaternion hiển thị giá trị số chính xác và biểu đồ biến thiên;
-     - Biểu đồ vận tốc góc (wz) theo thời gian;
-     - Biểu đồ so sánh vận tốc dài đặt và thực tế (Vx, Vy);
-     - Chẩn đoán chi tiết trạng thái 4 động cơ và ma trận luồng dữ liệu (Stream Matrix).
+- Mở trình duyệt tại `http://localhost:8000` (hoặc `http://localhost:3000` nếu chạy `--dev`).
+- Giao diện thiết kế phẳng (flat/industrial style, bo góc tối thiểu `rounded-sm`, viền sắc cạnh, font mono cho số liệu) gồm 3 tab điều khiển chuyên biệt:
+  1. **Control Cockpit**:
+     - Bản đồ 2D SLAM và chùm tia LiDAR trực quan hóa Canvas thời gian thực.
+     - Camera live feed (RGB và Depth) hỗ trợ từ Gazebo hoặc USB camera Jetson.
+     - Thẻ động học: tốc độ dài $V_x, V_y$, vận tốc góc $\omega_z$, góc quay La bàn Yaw.
+     - Bộ điều khiển phím WASD toàn cục (phát lệnh `cmd_vel` ổn định ở tần số 12.5 Hz với streaming timer, tự động dừng xe khi thả phím hoặc chuyển tab/blur cửa sổ).
+  2. **System Config**:
+     - Hiệu chỉnh trực tiếp tham số động học xe: bán kính bánh xe $R$, khoảng cách trục $L, W$, giới hạn tốc độ.
+     - Cấu hình an toàn: timeout watchdog lệnh, timeout E-Stop.
+     - Cấu hình PID vòng kín vận tốc động cơ: $K_p, K_i, K_d$.
+  3. **Debug Monitor**:
+     - **Motor Speeds (rad/s)**: 4 đồ thị con Recharts cho 4 động cơ (FL, FR, RL, RR) so sánh đồng thời 3 đường: *Raw Speed* (trước bộ lọc Kalman), *Filtered Speed* (sau bộ lọc Kalman), và *Target Speed* (mục tiêu từ động học ngược).
+     - **IMU Quaternion**: Hiển thị chính xác 4 giá trị số thực của Quaternion ($q_x, q_y, q_z, q_w$) với 4 chữ số thập phân, kèm đồ thị biến thiên theo thời gian.
+     - **Angular Velocity**: Biểu đồ so sánh vận tốc góc $\omega_z$ lệnh đặt (`cmd_wz`) và vận tốc góc đo được thực tế (`actual_wz`).
+     - **Linear Velocity**: Biểu đồ so sánh vận tốc tịnh tiến 2 trục: $V_x$ đặt vs thực tế, và $V_y$ đặt vs thực tế.
+     - **Diagnostics & Stream Matrix**: Hiển thị trạng thái chi tiết của 4 bánh xe, thông số cảm biến và ma trận luồng dữ liệu Jetson $\leftrightarrow$ STM32 với tần số gói tin và độ trễ mili-giây.
 
-### 12.2. Các scripts tiện ích bổ trợ
+### 12.2. Hướng dẫn chi tiết các scripts tiện ích bổ trợ
 
-- `./scripts/calibrate.sh`: Quy trình hiệu chuẩn odometry thực tế (bán kính bánh xe) và offset cảm biến IMU (đã có kiểm tra chống chia cho 0).
-- `./scripts/diagnostics.sh`: Kiểm tra toàn diện phần cứng, cổng USB, kết nối mạng, tiến trình ROS và bộ nhớ.
-- `./scripts/run_bridge.sh`: Cầu nối ROS 1 (Jetson Melodic) <-> ROS 2 (Host Jazzy) qua `ros1_bridge` hoặc Rosbridge WebSocket (mặc định trỏ `localhost:11311`, hỗ trợ cờ `--master-uri`).
-- `./scripts/save_map.sh`: Lưu bản đồ OccupancyGrid SLAM đang chạy thành file PNG/YAML.
-- `./scripts/bag.sh`: Ghi và phát lại dữ liệu rosbag cho các topic cảm biến chính.
-- `./scripts/install.sh`: Cài đặt udev rules nhận diện cổng USB cố định (`/dev/amr_*`) và tạo systemd service tự khởi động robot khi bật nguồn (hỗ trợ tham số `--ros-workspace`, `--ros-package`, `--ros-launch`).
+#### 12.2.1. `scripts/calibrate.sh` — Hiệu chuẩn phần cứng robot
+
+Dùng để đo đạc và hiệu chuẩn bán kính bánh xe, bề rộng xe (trackwidth), độ lệch tĩnh cảm biến IMU và góc quét LiDAR:
+
+```bash
+# Chạy toàn bộ quy trình hiệu chuẩn theo thứ tự
+./scripts/calibrate.sh all
+
+# Hiệu chuẩn Odometry: xe chạy thẳng 1 mét với tốc độ 0.2 m/s để đo sai số thực tế
+./scripts/calibrate.sh odometry --dist 1.0 --speed 0.2
+
+# Đo độ trôi Gyroscope tĩnh của IMU trong 10 giây (yêu cầu đặt xe đứng yên trên mặt phẳng)
+./scripts/calibrate.sh imu --duration 10
+
+# Kiểm tra tần số quét và góc mở của cảm biến LiDAR
+./scripts/calibrate.sh lidar --duration 10
+
+# Kiểm tra chiều quay và phản hồi encoder của 4 động cơ (chế độ giả lập an toàn không phát lực)
+./scripts/calibrate.sh motors --dry-run
+```
+
+#### 12.2.2. `scripts/diagnostics.sh` — Chẩn đoán toàn diện sức khỏe hệ thống
+
+Kiểm tra tức thời hoặc giám sát liên tục tình trạng phần cứng, kết nối mạng và hệ thống an toàn:
+
+```bash
+# Chạy kiểm tra nhanh toàn bộ hệ thống
+./scripts/diagnostics.sh
+
+# Kiểm tra tài nguyên Jetson Nano (CPU, RAM, GPU nhiệt độ, Power mode 5W/10W)
+./scripts/diagnostics.sh jetson
+
+# Kiểm tra các cổng USB cố định (/dev/amr_mcu, /dev/amr_lidar, /dev/amr_imu)
+./scripts/diagnostics.sh hardware
+
+# Kiểm tra kết nối mạng Wi-Fi, độ trễ Ping, và trạng thái ROS Master/Nodes
+./scripts/diagnostics.sh network
+
+# Kiểm tra điện áp pin LiPo 3S, dòng xả và ngưỡng ngắt an toàn cut-off
+./scripts/diagnostics.sh battery
+
+# Giám sát vòng lặp liên tục hệ thống an toàn (E-Stop, Watchdog, Twist Mux) mỗi 3 giây
+./scripts/diagnostics.sh safety --continuous
+
+# Giám sát liên tục toàn bộ hệ thống với chu kỳ kiểm tra 5 giây
+./scripts/diagnostics.sh all --continuous --interval 5
+```
+
+#### 12.2.3. `scripts/run_bridge.sh` — Cầu nối ROS 1 (Jetson) $\leftrightarrow$ ROS 2 (Host)
+
+Phục vụ truyền nhận dữ liệu giữa Jetson Nano (ROS 1 Melodic) và máy tính trạm WSL2/Ubuntu 24.04 (ROS 2 Jazzy):
+
+```bash
+# Khởi động cầu nối với ROS 1 Master mặc định tại localhost
+./scripts/run_bridge.sh
+
+# Chỉ định địa chỉ IP cụ thể của Jetson Nano
+./scripts/run_bridge.sh --master-uri http://192.168.1.100:11311
+```
+
+> **Cơ chế hoạt động:** Script tự động phát hiện và sử dụng gói `ros1_bridge` (Dynamic Bridge) nếu đã được cài đặt, hoặc chuyển sang chế độ WebSocket Rosbridge (cổng 9090) để backend web kết nối trực tiếp.
+
+#### 12.2.4. `scripts/save_map.sh` — Lưu bản đồ SLAM OccupancyGrid
+
+Sau khi điều khiển xe quét hoàn thành bản đồ môi trường bằng Nav2 / SLAM Toolbox:
+
+```bash
+# Lưu bản đồ mặc định thành maps/amr_lab_map.yaml và maps/amr_lab_map.pgm
+./scripts/save_map.sh
+
+# Đặt tên bản đồ tùy chọn
+./scripts/save_map.sh warehouse_zone_a
+
+# Lưu vào thư mục khác với ngưỡng chiếm dụng tùy biến
+./scripts/save_map.sh factory_map --dir /home/sonev/amr_omni/maps --occ 0.70 --free 0.20
+```
+
+#### 12.2.5. `scripts/bag.sh` — Quản lý dữ liệu Rosbag
+
+Tiện ích ghi và phát lại dữ liệu cảm biến, hỗ trợ cả ROS 2 Jazzy (`ros2 bag`) và ROS 1 Melodic (`rosbag`):
+
+```bash
+# Ghi lại các topic cảm biến thiết yếu (/cmd_vel, /odom, /scan, /imu/data_raw, /debug/data, ...)
+./scripts/bag.sh record
+
+# Ghi với tên file và tự động dừng sau 30 giây
+./scripts/bag.sh record test_trajectory_01 --duration 30
+
+# Ghi lại toàn bộ tất cả topic trong hệ thống
+./scripts/bag.sh record full_telemetry --all-topics --duration 60
+
+# Xem thông tin metadata và thống kê tần số của file bag đã ghi
+./scripts/bag.sh info bags/test_trajectory_01
+
+# Phát lại file bag với tốc độ 1.5x
+./scripts/bag.sh play bags/test_trajectory_01 --rate 1.5
+
+# Phát lại lặp vòng liên tục
+./scripts/bag.sh play bags/test_trajectory_01 --loop
+```
+
+#### 12.2.6. `scripts/install.sh` — Cài đặt Udev Rules & Systemd Autostart
+
+Thiết lập hệ thống trên robot thực tế trước khi triển khai:
+
+```bash
+# Cài đặt udev rules nhận diện cổng USB cố định (/dev/amr_mcu, /dev/amr_lidar, /dev/amr_imu)
+./scripts/install.sh udev
+
+# Cài đặt dịch vụ systemd amr_robot.service tự động bật robot khi cấp nguồn
+./scripts/install.sh service --user robot
+
+# Chỉ định đường dẫn workspace và launch file cho dịch vụ khởi động
+./scripts/install.sh service --ros-workspace /opt/ros1_ws --ros-package amr_bringup --ros-launch robot.launch
+
+# Cài đặt đồng thời cả udev rules và systemd service
+./scripts/install.sh all
+
+# Gỡ bỏ toàn bộ cấu hình đã cài đặt khỏi hệ thống
+./scripts/install.sh --uninstall
+```
 
 
 ## 13. Troubleshooting
@@ -847,3 +1031,8 @@ node .gitnexus/run.cjs analyze
 
 Không commit `.gitnexus/`. Trước khi sửa symbol code phải xem impact; sau thay
 đổi logic nên chạy detect changes theo quy ước trong `AGENTS.md`.
+
+<!-- 
+rm -f .git/index
+git reset 
+-->

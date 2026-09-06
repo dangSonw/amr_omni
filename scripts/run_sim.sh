@@ -53,7 +53,9 @@ Renode board shortcuts:
   stm32f4_discovery, stm32f103, stm32f746, stm32l072
 
 Examples:
-  scripts/run_sim.sh
+  scripts/run_sim.sh                                    # Gazebo simulation + Web dashboard (:8000)
+  scripts/run_sim.sh --no-web                           # Simulation only, no web backend
+  scripts/run_sim.sh --web-port 8080                    # Serve web interface on custom port
   scripts/run_sim.sh --mode gazebo --headless --world src/omni_simulation/worlds/amr_lab.sdf
   scripts/run_sim.sh --mode renode --board stm32f4_discovery --renode-duration 5s
   scripts/run_sim.sh --mode renode --renode-script ./my_board.resc --firmware ./build/app.elf

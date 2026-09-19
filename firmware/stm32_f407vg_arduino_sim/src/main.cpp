@@ -22,7 +22,9 @@
 #include "task.h"
 
 #include "firmware_config.h"
+#include "encoder_pll.h"
 #include "hardware.h"
+#include "imu_calibration.h"
 #include "kalman.h"
 #include "kinematics.h"
 #include "pid.h"
@@ -37,6 +39,7 @@ const uint8_t kStatusMessageCapacity = 64U;
 
 RobotState robot_state;
 SemaphoreHandle_t state_mutex = nullptr;
+ImuCalibrator imu_calibrator;
 
 rcl_allocator_t ros_allocator;
 rclc_support_t ros_support;
@@ -76,9 +79,11 @@ enum RosInitFlag : uint16_t {
 };
 uint16_t ros_init_flags = 0U;
 
-ScalarKalman wheel_filters[kWheelCount] = {
-    ScalarKalman(0.5F, 0.04F), ScalarKalman(0.5F, 0.04F),
-    ScalarKalman(0.5F, 0.04F), ScalarKalman(0.5F, 0.04F),
+EncoderPll wheel_pll[kWheelCount] = {
+    EncoderPll(20.0F, kEncoderCountsPerRevolution),
+    EncoderPll(20.0F, kEncoderCountsPerRevolution),
+    EncoderPll(20.0F, kEncoderCountsPerRevolution),
+    EncoderPll(20.0F, kEncoderCountsPerRevolution),
 };
 ScalarKalman body_velocity_filters[3] = {
     ScalarKalman(0.2F, 0.04F), ScalarKalman(0.2F, 0.04F),
@@ -248,6 +253,16 @@ bool initialize_ros_message_memory() {
     memset(&estop_message, 0, sizeof(estop_message));
     memset(&odometry_message, 0, sizeof(odometry_message));
     memset(&imu_message, 0, sizeof(imu_message));
+    float init_gyro_cov[9];
+    float init_accel_cov[9];
+    imu_calibrator.compute_covariances(kImuPeriodMs * 0.001F, init_gyro_cov, init_accel_cov);
+    for (uint8_t i = 0U; i < 9U; ++i) {
+        imu_message.angular_velocity_covariance[i] = init_gyro_cov[i];
+        imu_message.linear_acceleration_covariance[i] = init_accel_cov[i];
+    }
+    imu_message.orientation_covariance[0] = 1.0e6;
+    imu_message.orientation_covariance[4] = 1.0e6;
+    imu_message.orientation_covariance[8] = 2.5e-3;
     memset(&status_message, 0, sizeof(status_message));
 
     set_string(odometry_message.header.frame_id, odometry_frame_storage,
@@ -355,6 +370,18 @@ void publish_telemetry(const RobotState &state) {
     imu_message.linear_acceleration.x = state.imu.linear_accel_mps2[0];
     imu_message.linear_acceleration.y = state.imu.linear_accel_mps2[1];
     imu_message.linear_acceleration.z = state.imu.linear_accel_mps2[2];
+
+    float gyro_cov[9];
+    float accel_cov[9];
+    imu_calibrator.compute_covariances(kImuPeriodMs * 0.001F, gyro_cov, accel_cov);
+    for (uint8_t i = 0U; i < 9U; ++i) {
+        imu_message.angular_velocity_covariance[i] = gyro_cov[i];
+        imu_message.linear_acceleration_covariance[i] = accel_cov[i];
+    }
+    imu_message.orientation_covariance[0] = 1.0e6;
+    imu_message.orientation_covariance[4] = 1.0e6;
+    imu_message.orientation_covariance[8] = 2.5e-3;
+
     publish_message(imu_publisher, &imu_message);
 
     snprintf(status_storage, sizeof(status_storage), "%s",
@@ -384,15 +411,16 @@ void publish_telemetry(const RobotState &state) {
 }
 
 void clean_ros_entities() {
-    if (ros_init_flags & kInitExecutor) rclc_executor_fini(&ros_executor);
-    if (ros_init_flags & kInitDebugPub) rcl_publisher_fini(&debug_publisher, &ros_node);
-    if (ros_init_flags & kInitStatusPub) rcl_publisher_fini(&status_publisher, &ros_node);
-    if (ros_init_flags & kInitImuPub) rcl_publisher_fini(&imu_publisher, &ros_node);
-    if (ros_init_flags & kInitOdomPub) rcl_publisher_fini(&odometry_publisher, &ros_node);
-    if (ros_init_flags & kInitEstopSub) rcl_subscription_fini(&estop_subscriber, &ros_node);
-    if (ros_init_flags & kInitCmdVelSub) rcl_subscription_fini(&cmd_vel_subscriber, &ros_node);
-    if (ros_init_flags & kInitNode) rcl_node_fini(&ros_node);
-    if (ros_init_flags & kInitSupport) rclc_support_fini(&ros_support);
+    rcl_ret_t ret;
+    if (ros_init_flags & kInitExecutor) { ret = rclc_executor_fini(&ros_executor); (void)ret; }
+    if (ros_init_flags & kInitDebugPub) { ret = rcl_publisher_fini(&debug_publisher, &ros_node); (void)ret; }
+    if (ros_init_flags & kInitStatusPub) { ret = rcl_publisher_fini(&status_publisher, &ros_node); (void)ret; }
+    if (ros_init_flags & kInitImuPub) { ret = rcl_publisher_fini(&imu_publisher, &ros_node); (void)ret; }
+    if (ros_init_flags & kInitOdomPub) { ret = rcl_publisher_fini(&odometry_publisher, &ros_node); (void)ret; }
+    if (ros_init_flags & kInitEstopSub) { ret = rcl_subscription_fini(&estop_subscriber, &ros_node); (void)ret; }
+    if (ros_init_flags & kInitCmdVelSub) { ret = rcl_subscription_fini(&cmd_vel_subscriber, &ros_node); (void)ret; }
+    if (ros_init_flags & kInitNode) { ret = rcl_node_fini(&ros_node); (void)ret; }
+    if (ros_init_flags & kInitSupport) { ret = rclc_support_fini(&ros_support); (void)ret; }
     ros_init_flags = 0U;
 }
 
@@ -507,14 +535,16 @@ void encoder_task(void *) {
             const float safe_delta = delta_sec > 0.0F ? delta_sec : 0.01F;
             for (uint8_t index = 0U; index < kWheelCount; ++index) {
                 const int32_t counts = RobotHardware::read_encoder_count(index);
-                const int32_t delta_counts = counts - previous_counts[index];
+                const int16_t delta_counts = EncoderPll::compute_timer_delta(
+                    static_cast<uint16_t>(counts),
+                    static_cast<uint16_t>(previous_counts[index]));
                 previous_counts[index] = counts;
-                const float raw_speed = delta_counts * 6.28318530718F /
+                const float raw_speed = static_cast<float>(delta_counts) * 6.28318530718F /
                     (static_cast<float>(kEncoderCountsPerRevolution) *
                      safe_delta);
+                const float pll_speed = wheel_pll[index].update(delta_counts, safe_delta);
                 state.raw_wheel_speed_rad_s[index] = raw_speed;
-                state.measured_wheel_speed_rad_s[index] =
-                    wheel_filters[index].update(raw_speed, safe_delta);
+                state.measured_wheel_speed_rad_s[index] = pll_speed;
                 state.encoder_counts[index] = counts;
             }
             RobotHardware::update_simulation(state.target_wheel_speed_rad_s,
@@ -531,9 +561,11 @@ void imu_task(void *) {
     for (;;) {
         RobotState state;
         if (copy_state(state)) {
+            ImuSample raw_sample;
             ImuSample sample;
             bool fault = state.imu_fault;
-            if (RobotHardware::read_imu(sample)) {
+            if (RobotHardware::read_imu(raw_sample)) {
+                imu_calibrator.calibrate_sample(raw_sample, sample);
                 float quaternion_norm = sample.quaternion_xyzw[0] * sample.quaternion_xyzw[0] +
                                         sample.quaternion_xyzw[1] * sample.quaternion_xyzw[1] +
                                         sample.quaternion_xyzw[2] * sample.quaternion_xyzw[2] +

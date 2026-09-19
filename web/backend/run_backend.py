@@ -43,18 +43,18 @@ def main():
             sys.path.append(p)
 
     print(f"==================================================")
-    print(f"🚀 Khởi động AMR Omni Web Backend trên http://{args.host}:{args.port}")
-    print(f"🤖 Chế độ kết nối: {args.mode}")
+    print(f"Khởi động AMR Omni Web Backend trên http://{args.host}:{args.port}")
+    print(f"Chế độ kết nối: {args.mode}")
 
     # Chẩn đoán rclpy
     try:
         import rclpy
-        print(f"✅ rclpy khả dụng (ROS 2 {os.getenv('ROS_DISTRO', 'jazzy')})")
+        print(f"rclpy khả dụng (ROS 2 {os.getenv('ROS_DISTRO', 'jazzy')})")
     except ImportError as e:
         if args.mode == "ros2":
-            print(f"⚠️ Cảnh báo: rclpy không import được ({e}). Hãy đảm bảo đã source /opt/ros/jazzy/setup.bash")
+            print(f"Cảnh báo: rclpy không import được ({e}). Hãy đảm bảo đã source /opt/ros/jazzy/setup.bash")
         else:
-            print(f"ℹ️ rclpy không khả dụng trong môi trường hiện tại.")
+            print(f"rclpy không khả dụng trong môi trường hiện tại.")
 
     print(f"==================================================")
 

@@ -1,4 +1,5 @@
 #include "kalman.h"
+#include <math.h>
 
 ScalarKalman::ScalarKalman(float process_noise, float measurement_noise)
     : process_noise_(process_noise),

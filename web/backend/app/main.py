@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.bridges import get_bridge
 from app.config import settings
-from app.routers import api, ws
+from app.routers import api, calib, ws
 from app.services.telemetry_hub import telemetry_hub
 
 logging.basicConfig(
@@ -57,6 +57,7 @@ async def add_no_cache_headers(request, call_next):
 
 # Đăng ký các router
 app.include_router(api.router)
+app.include_router(calib.router)
 app.include_router(ws.router)
 
 

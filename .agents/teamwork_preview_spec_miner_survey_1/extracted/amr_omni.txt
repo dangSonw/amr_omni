@@ -1,0 +1,562 @@
+# DOCUMENT: amr_omni.docx
+
+BÁO CÁO PHÂN TÍCH KIẾN TRÚC ROBOT TỰ HÀNH
+
+Cảm biến → Vi điều khiển (MCU) → Máy tính ROS → Định vị (EKF/SLAM) → Điều hướng (Nav2)
+
+
+--- TABLE START ---
+Tác giả / Nhóm phân tích: Báo cáo phân tích kỹ thuật hệ thống robot tự hành Thời điểm lập báo cáo: 07/09/2026 Trạng thái đánh giá: Source-grounded review (Đã đối chiếu mã nguồn; cần xác nhận thực địa trước khi vận hành) Phạm vi khảo sát: Repository trung tâm /home/sonev/amr_omni và các repository tham chiếu chuyên sâu trong /home/sonev/amr_omni/temp
+--- TABLE END ---
+
+
+--- TABLE START ---
+⚠️  CẢNH BÁO QUAN TRỌNG (ENGINEERING WARNING) Báo cáo này phân biệt rõ ba mức độ nhận định: đã xác nhận từ mã nguồn, suy luận kỹ thuật, và khuyến nghị thiết kế. Trước khi chạy robot trên phần cứng thật, bắt buộc phải đo đạc lại chiều quay bánh xe, độ phân giải encoder, quy ước chiều dấu toạ độ, frame cảm biến, tần số thực tế và ma trận hiệp phương sai (covariance) thông qua rosbag và công cụ kiểm tra TF.
+--- TABLE END ---
+
+Hướng dẫn trình bày và quy chuẩn kỹ thuật	
+
+Tài liệu này được biên soạn theo chuẩn báo cáo kỹ thuật công nghiệp. Để đảm bảo tính khả dụng và dễ đọc nhất cho kỹ sư phát triển, các quy tắc sau được áp dụng xuyên suốt:
+
+• Cấu trúc phân cấp rõ ràng: Tiêu đề chương lớn (Heading 1), đề mục cấp 2 (Heading 2), và đề mục chi tiết (Heading 3).
+
+• Sơ đồ trực quan hóa cao cấp: Các sơ đồ kiến trúc, luồng dữ liệu tuần tự và topology định vị được render ở độ phân giải 300 DPI với chú thích rõ ràng.
+
+• Hộp ghi chú phân màu: Phân biệt trực quan giữa Cảnh báo rủi ro (đỏ/vàng), Ghi chú thiết kế (xanh dương) và Khuyến nghị kỹ thuật (xanh lá).
+
+• Dấu vết kiểm toán (Audit Trail): Mọi đường dẫn thư mục, file mã nguồn và tên hàm/topic quan trọng đều được định dạng Monospace để người đọc dễ dàng đối chiếu trực tiếp vào source code.
+
+• Ma trận so sánh và Lộ trình ưu tiên: Tổng kết đối sánh đa chiều giữa 6 repository và đưa ra checklist nghiệm thu hành động (P0, P1, P2).
+
+MỤC LỤC NỘI DUNG BÁO CÁO
+
+Chương 1. Phạm vi và phương pháp đọc repo — Khảo sát 6 repository mã nguồn và phương pháp kiểm chứng
+
+Chương 2. Mô hình chuẩn của một robot tự hành (AMR) — Phân lớp từ cảm biến đến hành động và chuẩn hoá dữ liệu ROS 2
+
+Chương 3. Phân tích repository III-Robot-ROS2 — Mô phỏng Mecanum, Cartographer, Nav2 và bridge STM32
+
+Chương 4. Phân tích linorobot2 và linorobot2_hardware — Phân lớp stack, firmware micro-ROS, PID động cơ và EKF
+
+Chương 5. Phân tích ros2_omni_robot_sim — Mô phỏng omni 3–6 bánh trên Gazebo Harmonic và các lỗi cấu hình
+
+Chương 6. Phân tích rosbot_ekf — Ví dụ sensor fusion wheel pose + IMU trên nền tảng ROS 1
+
+Chương 7. Phân tích wheeltec_ros2 — Hệ thống thương mại Wheeltec, protocol serial/CAN và rủi ro an ninh SCADA
+
+Chương 8. Đối chiếu toàn diện với kiến trúc amr_omni — Ma trận so sánh tính năng, đánh giá độc lập và nhận định khoảng trống
+
+Chương 9. EKF, kỹ thuật chống trôi và di chuyển chính xác — Cơ chế phân tầng EKF + SLAM, động học Mecanum và quy trình hiệu chuẩn 5 bước
+
+Chương 10. Kết luận tổng thể và lộ trình ưu tiên — Các bài học cốt lõi cần kế thừa và roadmap triển khai P0, P1, P2
+
+Chương 11. Phụ lục kiểm thử và từ điển dữ liệu — Checklist kiểm tra trước khi hạ bánh và bảng truy vết mã nguồn (Traceability)
+
+1. PHẠM VI VÀ PHƯƠNG PHÁP ĐỌC REPO
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+1.1. Phạm vi khảo sát
+
+Báo cáo tiến hành khảo sát và phân tích sâu sáu kho mã nguồn (repository) nằm trong thư mục /home/sonev/amr_omni/temp, đại diện cho các trường phái tiếp cận khác nhau trong việc xây dựng robot di động đa hướng:
+
+
+--- TABLE START ---
+Tên Repository | Vai trò chính trong hệ thống | Nền tảng công nghệ ghi nhận
+III-Robot-ROS2 | Mô phỏng Mecanum, Cartographer, Nav2, bridge STM32 thử nghiệm | ROS 2 Humble / Gazebo Classic
+linorobot2 | Stack robot thật và mô phỏng, mô tả URDF, EKF, SLAM, Nav2 | ROS 2 (Humble/Jazzy), đa cấu hình base
+linorobot2_hardware | Firmware micro-ROS, giải mã encoder, PID vận tốc, kinematics | Pico / ESP32 / PlatformIO
+ros2_omni_robot_sim | Mô phỏng động học omni 3–6 bánh, gz_ros2_control | ROS 2 Jazzy / Gazebo Harmonic
+rosbot_ekf | Ví dụ sensor fusion giữa wheel pose và IMU yaw/yaw_rate | ROS 1 Noetic / catkin
+wheeltec_ros2 | Hardware thực tế Wheeltec, STM32, Nav2, SLAM, SCADA Bridge | ROS 2 Humble / Custom architecture
+--- TABLE END ---
+
+Repository mục tiêu đối chiếu là /home/sonev/amr_omni, tập trung tại các thư mục chức năng: src/ (các ROS node), firmware/ (mã nguồn STM32), scripts/ (công cụ tự động hoá và hiệu chuẩn), maps/ và web/.
+
+1.2. Phương pháp nghiên cứu và giới hạn
+
+Phương pháp kiểm chứng được thực hiện bằng cách đọc trực tiếp toàn bộ README.md, package manifests (package.xml, CMakeLists.txt), launch scripts, mô hình URDF/Xacro, các node điều khiển trung tâm, file cấu hình YAML của EKF, Nav2, SLAM, mã nguồn firmware C/C++ và các file định nghĩa giao thức truyền thông. Báo cáo lập danh mục chi tiết để không bỏ sót bất kỳ thành phần trọng yếu nào.
+
+
+--- TABLE START ---
+📌  LƯU Ý THIẾT KẾ (DESIGN NOTE) Khái niệm “Đọc toàn bộ repo” trong báo cáo này được định nghĩa là đã quét toàn bộ cấu trúc thư mục và phân tích sâu các đường dẫn dữ liệu (data pipelines) thực thi liên quan trực tiếp đến yêu cầu vận hành. Các file tự động sinh ra trong quá trình build, thư viện binary của bên thứ ba (vendor) và log vận hành cũ không được xem là source-of-truth cho thiết kế hệ thống.
+--- TABLE END ---
+
+2. MÔ HÌNH CHUẨN CỦA MỘT ROBOT TỰ HÀNH
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+2.1. Phân lớp kiến trúc từ cảm biến tới hành động
+
+Một robot tự hành công nghiệp (AMR) chuẩn mực đòi hỏi sự phân tách chặt chẽ giữa tầng điều khiển vòng kín thời gian thực cứng (hard real-time) và tầng tính toán nhận thức mức cao (high-level compute). Kiến trúc phân tầng tiêu chuẩn được minh hoạ chi tiết trong Hình 1 bên dưới:
+
+Hình 1 — Phân lớp kiến trúc điều khiển và luồng thông tin trong robot tự hành (AMR).
+
+Nguyên tắc cốt lõi: Vi điều khiển (MCU) nắm giữ toàn bộ vòng lặp điều khiển động cơ và trạng thái dừng an toàn (E-stop/Watchdog); máy tính nhúng ROS đảm nhiệm các tác vụ tính toán nặng gồm nhận thức (perception), kết hợp cảm biến (sensor fusion), xây dựng bản đồ (mapping) và hoạch định quỹ đạo (planning). Tuyệt đối không để vòng điều khiển PID động cơ phụ thuộc vào đường truyền mạng, máy chủ hay giao diện HMI.
+
+2.2. Các kiểu dữ liệu chuẩn và giao thức truyền thông
+
+Để đảm bảo tính tương thích và mở rộng, toàn bộ luồng thông tin giữa phần cứng và phần mềm phải tuân thủ nghiêm ngặt các kiểu dữ liệu chuẩn của ROS 2:
+
+
+--- TABLE START ---
+Loại Dữ Liệu | Kiểu ROS 2 / Quy Ước | Đơn Vị & Ràng Buộc Kỹ Thuật
+Lệnh thân robot | geometry_msgs/msg/Twist | linear.x/y (m/s), angular.z (rad/s)
+Phản hồi Encoder / Khớp | sensor_msgs/msg/JointState | Vị trí bánh (rad), vận tốc góc (rad/s)
+Odometry thô & lọc | nav_msgs/msg/Odometry | Pose (x, y, quat), Twist (vx, vy, wz), Covariance 6x6
+Cảm biến quán tính IMU | sensor_msgs/msg/Imu | Gia tốc m/s², vận tốc góc rad/s, hướng quaternion
+Quét laser 2D | sensor_msgs/msg/LaserScan | Khoảng cách (m), góc (rad), frame_id chuẩn
+Cây toạ độ liên kết | TF2 (tf2_ros) | map → odom → base_footprint → base_link → sensors
+Giao thức MCU ↔ ROS | Frame nhị phân cố định | Header, Frame ID, Payload (int16/float), Checksum, Tail
+--- TABLE END ---
+
+Cảnh báo về giao thức phần cứng: Không bao giờ truyền kiểu float hoặc int16 giữa các thiết bị mà không quy định rõ ràng về hệ số tỉ lệ (scale factor), thứ tự byte (endianness), bit dấu (signedness), mã kiểm tra toàn vẹn (checksum CRC/XOR) và phiên bản giao thức. Với vận tốc robot, một giải pháp tin cậy là đóng gói dạng số nguyên có dấu 16-bit với scale 1000 (1 m/s = 1000 đơn vị), đồng thời phải có cơ chế bão hoà (clamp/saturation) trước khi ép kiểu để tránh tràn số (overflow).
+
+3. PHÂN TÍCH REPOSITORY `III-Robot-ROS2`
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+3.1. Mục tiêu và cấu trúc phân gói
+
+Repository III-Robot-ROS2 tập trung vào việc mô phỏng một robot bốn bánh Mecanum trong môi trường Gazebo Classic, tích hợp thuật toán Cartographer SLAM, Nav2, điều khiển từ xa (teleop), quản lý điểm đánh dấu (marker/path) và module cầu nối serial thử nghiệm với STM32. Các package chính gồm:
+
+
+--- TABLE START ---
+Đường Dẫn Package | Vai Trò & Chức Năng Cụ Thể
+src/bot_description | Định nghĩa mô hình URDF/Xacro, mesh 3D, cảm biến và Gazebo plugin
+src/bot_bringup | Chứa các launch file khởi động Gazebo, RViz và robot_state_publisher
+src/bot_cartographer | Cấu hình file Lua và launch node tạo bản đồ Cartographer 2D
+src/bot_navigation2 | Bộ thông số tham số hoá và launch pipeline dẫn đường Nav2
+src/bot_programing | Các action client Python giao tiếp với Nav2 để gửi điểm đến
+src/bot_teleop | Điều khiển bàn phím và các kịch bản kiểm thử IMU/yaw
+src/bot_bag | Công cụ ghi nhận và phát lại dữ liệu toạ độ, marker và map
+src/bridge | Node cầu nối truyền thông Serial giữa ROS 2 và vi điều khiển STM32
+src/bot_interfaces | Định nghĩa custom message CtrlMarker phục vụ điều hướng
+--- TABLE END ---
+
+3.2. Kinematics, cảm biến và luồng dữ liệu
+
+Trong file bot_base.urdf.xacro, kích thước cơ sở được thiết lập với khoảng cách bánh theo chiều ngang wheel_separation_w = 0.36 m, chiều dọc wheel_separation_l = 0.32 m, bán kính bánh xe r = 0.0635 m. Plugin mô phỏng bot_gazebo_plugin.xacro nhận lệnh /cmd_vel và điều khiển 4 bánh theo thứ tự: back_left, front_left, front_right, back_right.
+
+• LiDAR 2D: Topic /scan, kiểu sensor_msgs/LaserScan, frame lidar, tần số 30 Hz, tầm quét 0.12 – 11.0 m.
+
+• Camera đo sâu (Depth Camera): Độ phân giải 960×540, tần số 30 Hz, gắn tại frame camera.
+
+• Cảm biến IMU: Tên phần cứng imu_n100, đặt dưới base_link_2 để đo vận tốc góc và hướng.
+
+• Các topic lõi: /cmd_vel (Twist), /odom (Odometry), /scan, /joint_states, /bot_path (Path).
+
+3.3. Module cầu nối vi điều khiển (MCU Bridge)
+
+Module src/bridge/bridge/bridge.py mở cổng nối tiếp mặc định /dev/ttyUSB0 với tốc độ baud 115200, timeout 0.2 s; node thực hiện publish mảng byte thô std_msgs/ByteMultiArray lên topic /stm32/recv và đăng ký lắng nghe tại /stm32/send. File protocol.py định nghĩa các ID thiết bị, cấu trúc gói tin vận tốc R_RobotVelocity, cơ chế bắt tay (handshake) và mã kiểm tra XOR.
+
+Nhận định kỹ thuật: Đây mới chỉ là bridge xử lý ở mức byte thô sơ cấp, hoàn toàn chưa phải là một firmware Mecanum hoàn chỉnh. Khung truyền 12 byte và thuật toán checksum chưa được kiểm chứng thực nghiệm; trong code còn tồn tại lỗi cú pháp tiềm ẩn khi gọi int.from_bytes() trên một phần tử integer đơn lẻ, có thể làm sập node khi chạy thực tế. Không tìm thấy mã nguồn firmware STM32 đi kèm để chứng minh luồng truyền dữ liệu end-to-end.
+
+3.4. Hệ thống định vị và các nguy cơ rủi ro
+
+Trong repository này, hoàn toàn không có sự xuất hiện của node EKF (robot_localization). Cấu hình Cartographer (bot_lds_2d.lua) nhận trực tiếp odometry và IMU, theo dõi frame base_footprint, map toạ độ toàn cục map, và tự mình phát frame odom. Đồng thời, plugin Gazebo trong mô phỏng cũng được bật cờ phát transform odom → base_footprint.
+
+
+--- TABLE START ---
+⚠️  CẢNH BÁO QUAN TRỌNG (ENGINEERING WARNING) Cần đặc biệt lưu ý: Trong toàn bộ hệ thống, bắt buộc phải đảm bảo chỉ có DUY NHẤT MỘT NGUỒN CẤP PHÁT (Authority) transform toạ độ odom → base_footprint. Nếu cả Gazebo plugin và Cartographer (hoặc EKF) cùng đồng thời broadcast transform này, cây toạ độ TF2 sẽ bị xung đột nghiêm trọng (flickering TF), dẫn đến việc Nav2 nhận toạ độ nhảy loạn xạ và mất khả năng kiểm soát robot.
+--- TABLE END ---
+
+3.5. Đánh giá tổng thể
+
+Repository này phù hợp làm tài liệu tham khảo cho việc thiết lập môi trường mô phỏng Gazebo Classic kết hợp với Cartographer 2D và Nav2. Tuy nhiên, các điểm yếu lớn gồm: thiếu bộ lọc EKF chuẩn mực, cầu nối STM32 thô sơ chưa hoàn thiện và rủi ro xung đột TF. Không khuyến nghị sao chép cấu trúc này sang robot thực tế.
+
+4. PHÂN TÍCH `linorobot2` VÀ `linorobot2_hardware`
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+4.1. Phân lớp kiến trúc của `linorobot2`
+
+linorobot2 là một trong những framework mã nguồn mở mẫu mực nhất dành cho robot di động ROS 2, với cấu trúc phân tách module cực kỳ khoa học:
+
+
+--- TABLE START ---
+Package | Vai Trò Kiến Trúc
+linorobot2_base | Cấu hình và khởi chạy bộ lọc EKF robot_localization để hợp nhất odometry
+linorobot2_bringup | Khởi chạy micro-ROS agent, kết nối cảm biến LiDAR và camera đo sâu thực tế
+linorobot2_description | Mô tả URDF/Xacro tham số hoá cho nhiều loại đế robot (2WD, 4WD, Mecanum)
+linorobot2_gazebo | Môi trường mô phỏng Gazebo chuẩn xác tương thích với phần cứng thật
+linorobot2_navigation | Tích hợp SLAM Toolbox, AMCL và Nav2 được tinh chỉnh tham số chuyên biệt
+docker/ & docs/ | Hệ thống tài liệu hướng dẫn biến đổi toạ độ và Dockerfile chuẩn hoá môi trường
+--- TABLE END ---
+
+4.2. Luồng dữ liệu phần cứng và giao tiếp micro-ROS
+
+Quy trình giao tiếp giữa máy tính nhúng và vi điều khiển trong linorobot2 được tổ chức thông qua giao thức micro-ROS công nghiệp, thể hiện qua sơ đồ tuần tự Hình 2:
+
+Hình 2 — Đường truyền dữ liệu phần cứng và vòng điều khiển phản hồi trong linorobot2.
+
+File launch linorobot2_bringup thiết lập kết nối mặc định qua cổng nối tiếp /dev/ttyACM0 với tốc độ baud cực cao 921600, hoặc qua mạng Ethernet/Wi-Fi UDP port 8888. Cảm biến LiDAR publish /scan, hình ảnh chiều sâu được chuyển đổi thành tia laser quét 2D thông qua node depthimage_to_laserscan.
+
+4.3. Cấu hình bộ lọc EKF (`robot_localization`)
+
+Cấu hình chuẩn trong linorobot2_base/config/ekf.yaml thể hiện chuẩn mực thiết kế tối ưu cho robot di động mặt phẳng:
+
+• Tần số hoạt động: 50.0 Hz | Chế độ 2D: two_d_mode: true
+
+• Khung toạ độ: map_frame: map, odom_frame: odom, base_link_frame: base_footprint, world_frame: odom
+
+• Đầu vào Wheel Odometry (odom/unfiltered): Chỉ lấy vi phân vận tốc vx, vy, vyaw (bỏ qua toạ độ vị trí tích luỹ để tránh trôi).
+
+• Đầu vào Cảm biến IMU (imu/data): Chỉ lấy vận tốc góc xoay quanh trục z vyaw (và yaw nếu đã hiệu chuẩn).
+
+Đầu ra của EKF là topic odometry/filtered, được remap thành /odom và node EKF là đối tượng DUY NHẤT broadcast transform toạ độ odom → base_footprint. Đây là cấu hình kinh điển giúp chuyển động robot luôn mượt mà.
+
+4.4. Phân tích firmware vi điều khiển `linorobot2_hardware`
+
+Thư mục firmware viết trên PlatformIO được tổ chức thành các thư viện hướng đối tượng độc lập: encoder/, kinematics/, odometry/, pid/, imu/, motor/, battery/. Hỗ trợ trực tiếp vi điều khiển Raspberry Pi Pico (RP2040/RP2350), ESP32, ESP32-S2/S3.
+
+Công thức động học ngược Mecanum (Inverse Kinematics) được triển khai trong firmware/lib/kinematics/kinematics.cpp:
+
+• motor1 (Front-Right) = x_rpm - y_rpm - tan_rpm
+
+• motor2 (Front-Left)  = x_rpm + y_rpm + tan_rpm
+
+• motor3 (Back-Left)   = x_rpm + y_rpm - tan_rpm
+
+• motor4 (Back-Right)  = x_rpm - y_rpm + tan_rpm
+
+Tín hiệu phản hồi từ encoder đưa qua thuật toán PID vận tốc vòng kín 50 Hz cho từng động cơ riêng biệt; giá trị mặc định trong lino_base_config.h là K_P = 0.6, K_I = 0.8, K_D = 0.5. Firmware tích hợp bộ đếm thời gian giám sát an toàn (Command Watchdog): nếu không nhận được lệnh /cmd_vel trong vòng 200 ms hoặc mất kết nối với micro-ROS agent, hàm fullStop() sẽ ngay lập tức phanh dừng toàn bộ động cơ. Đây là mẫu tham chiếu tin cậy nhất về độ an toàn cho phần cứng.
+
+4.5. Đánh giá và bài học kế thừa
+
+Ưu điểm nổi bật: Kiến trúc module hoá cực kỳ sạch sẽ, tính đồng nhất cao giữa mô phỏng và robot thật, cơ chế an toàn vi điều khiển chặt chẽ. Điểm cần tinh chỉnh: Cần xác thực lại mô hình chuyển động Mecanum trong AMCL (chuyển từ vi sai sang omni), đồng bộ thống nhất giữa base_link và base_footprint, và kiểm tra ngưỡng vận tốc ngang min_vel_y trong Nav2 để không bị triệt tiêu các lệnh dịch chuyển ngang nhỏ.
+
+5. PHÂN TÍCH REPOSITORY `ros2_omni_robot_sim`
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+5.1. Cấu trúc và môi trường mô phỏng
+
+Repository này được xây dựng trên nền tảng ROS 2 Jazzy kết hợp với trình mô phỏng thế hệ mới Gazebo Harmonic. Điểm đặc thù là tập trung giải quyết bài toán động học cho dòng robot omni sử dụng bánh xe đa hướng từ 3 đến 6 bánh. Launch file launch/gazebo_sim.launch.py khởi chạy toàn bộ pipeline bao gồm robot_state_publisher, Gazebo Sim, ros_gz_bridge và node tính toán động học kinematics.
+
+Node trung tâm src/kinematics.cpp đóng vai trò cầu nối: nhận /cmd_vel (geometry_msgs/Twist), đọc /joint_states và /imu, sau đó tính toán vận tốc góc của từng bánh xe và gửi xuống bộ điều khiển gz_ros2_control dưới dạng std_msgs/Float64MultiArray.
+
+5.2. Công thức động học tổng quát cho robot đa bánh
+
+Với cấu hình robot omni n bánh bố trí đối xứng hướng tâm, ma trận động học ngược được thiết lập dựa trên góc phân bố $\alpha_i$ của từng bánh xe quanh tâm robot:
+
+• Công thức vận tốc góc: $\omega_i = \frac{-\sin(\alpha_i)v_x + \cos(\alpha_i)v_y + R\omega_z}{r}$
+
+• Trong đó: $r = 0.03\text{ m}$ là bán kính bánh xe, $R = 0.088\text{ m}$ là khoảng cách từ tâm robot đến tâm bánh.
+
+Mô phỏng sử dụng ros_gz_bridge để chuyển đổi các topic cảm biến từ Gazebo sang ROS 2: /imu (sensor_msgs/Imu), /scan (sensor_msgs/LaserScan), camera hình ảnh/chiều sâu và xung nhịp /clock.
+
+5.3. Các sai sót nghiêm trọng trong bài toán định vị
+
+Qua phân tích mã nguồn, phát hiện node kinematics.cpp tự thực hiện việc tích phân vận tốc bánh xe và góc yaw của IMU để phát broadcast trực tiếp transform odom → base_footprint. Hệ thống hoàn toàn không sử dụng bộ lọc EKF.
+
+
+--- TABLE START ---
+⚠️  CẢNH BÁO QUAN TRỌNG (ENGINEERING WARNING) Các khiếm khuyết kỹ thuật nghiêm trọng trong repo ros2_omni_robot_sim: 1. Bỏ sót vận tốc Twist: Trong dữ liệu nav_msgs/Odometry xuất ra, trường twist.twist.linear.x/y không được cập nhật giá trị thực tế sau khi tích phân vị trí, khiến các node sử dụng twist bị sai lệch. 2. Ma trận Covariance vô nghĩa: Các giá trị sai số hiệp phương sai được gán bằng 0 hoặc giá trị tĩnh không có cơ sở xác suất. 3. Vô hiệu hoá chuyển động ngang trong Nav2: Mặc dù AMCL được cấu hình OmniMotionModel, nhưng trong file tham số bộ điều khiển DWB, hai tham số quyết định là max_vel_y và vy_samples lại bị gán bằng 0! Điều này dẫn đến việc robot omni bị biến thành robot vi sai thông thường, không thể di chuyển tịnh tiến sang hai bên.
+--- TABLE END ---
+
+6. PHÂN TÍCH REPOSITORY `rosbot_ekf`
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+6.1. Mục tiêu và phạm vi kỹ thuật
+
+rosbot_ekf là một package viết cho nền tảng ROS 1 (Noetic/Melodic) trên hệ thống dựng hình catkin, dùng cho dòng robot mẫu ROSbot Pro. Launch file launch/all.launch kết hợp các thành phần: cầu nối rosserial_python, node chuyển đổi kiểu dữ liệu msgs_conversion, và node robot_localization/ekf_localization_node.
+
+6.2. Cơ chế xử lý dữ liệu và cấu hình EKF
+
+Trong file msgs_conversion.cpp, dữ liệu toạ độ geometry_msgs/PoseStamped từ vi điều khiển được đóng gói lại thành message chuẩn nav_msgs/Odometry trước khi đưa vào EKF. Cấu hình trong params/ekf_params.yaml có các đặc điểm:
+
+• Tần số EKF: 20 Hz, thời gian chờ cảm biến sensor_timeout = 0.2 s.
+
+• Frame tham chiếu: base_link_frame = base_link, world_frame = odom, kích hoạt publish_tf = true.
+
+• Fusion toạ độ: Wheel input cung cấp pose (x, y, z, yaw); IMU cung cấp yaw và vận tốc góc wz.
+
+• Bật chế độ dự báo điều khiển: use_control = true, lấy vận tốc đặt từ cmd_vel với timeout 0.2 s.
+
+Hạn chế kỹ thuật: Package này sử dụng công nghệ ROS 1 cũ kỹ; ma trận covariance được đặt cố định một cách chủ quan; kích hoạt trục z không cần thiết đối với một robot chuyển động trên mặt phẳng 2D; và việc đưa dữ liệu vị trí tích luỹ (PoseStamped) vào EKF thay vì đưa vi phân vận tốc là một phương pháp kém chính xác hơn vì dễ bị tích luỹ lỗi trôi.
+
+7. PHÂN TÍCH REPOSITORY `wheeltec_ros2`
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+7.1. Cấu trúc hệ thống và tính ứng dụng thực tế
+
+wheeltec_ros2 là repository chứa toàn bộ hệ sinh thái phần mềm thương mại của hãng Wheeltec, hỗ trợ đa dạng cấu hình khung gầm thực tế (mini_mec, mini_omni, mini_diff, mini_4wd, mini_akm). Kiến trúc triển khai thực địa được phân chia: một máy tính nhúng Raspberry Pi gắn trên robot chịu trách nhiệm giao tiếp phần cứng và cảm biến, kết nối không dây với máy tính trạm (laptop/server) chạy thuật toán AI và giao diện web.
+
+Các package cấu thành gồm: turn_on_wheeltec_robot (driver giao tiếp serial, IMU, tính odometry), wheeltec_robot_urdf, wheeltec_robot_nav2, wheeltec_robot_slam, bộ điều khiển trạm sạc tự động (auto recharge), điều hướng theo điểm tuần tra (waypoint patrol) và thư mục mã nguồn firmware STM32 (stm/).
+
+7.2. Giao thức khung truyền Serial và mạng CAN
+
+Trong file mã nguồn v650_wheeltec_robot.cpp, hàm Cmd_Vel_Callback() thực hiện đóng gói lệnh vận tốc thành khung truyền nhị phân có định dạng cố định gửi xuống STM32:
+
+• Cấu trúc frame: 0x7B (Header) | reserved | reserved | vx[2 bytes] | vy[2 bytes] | wz[2 bytes] | Checksum XOR | 0x7D (Tail)
+
+• Mã hoá vận tốc: Vận tốc float (m/s) được nhân với scale factor 1000 và ép thành kiểu số nguyên có dấu 16-bit (int16_t). Tổng chiều dài frame lệnh là 24 byte.
+
+• Giao thức CAN: Trong file stm/HARDWARE/can.c, STM32 phân tách bộ đệm dữ liệu thành các frame CAN tiêu chuẩn 8-byte với các ID chuyên biệt 0x101, 0x102, 0x103 để điều khiển trực tiếp từng động cơ gắn driver thông minh.
+
+7.3. Cảm biến, EKF và thuật toán SLAM
+
+Phần cứng sử dụng IMU MPU6050 phát dữ liệu thô /imu/data_raw; thuật toán lọc hướng Madgwick được cấu hình không dùng la bàn số (use_mag = false) và không phát TF (publish_tf = false). Node EKF trong config/ekf.yaml chạy ở tần số 30 Hz, cấu hình two_d_mode = true, hợp nhất vi phân vận tốc vx, vy, vyaw từ odometry bánh xe và góc yaw, vyaw từ IMU. Toạ độ toàn cục được cung cấp bởi Cartographer hoặc SLAM Toolbox tuỳ thuộc vào kịch bản vận hành.
+
+7.4. Hệ thống SCADA Bridge và các lỗ hổng an ninh nghiêm trọng
+
+Node wheeltec_scada_bridge xây dựng cơ chế truyền thông điều khiển qua thư viện ZeroMQ với định dạng JSON, mở ba cổng socket: Command (port 5555), Telemetry (port 5556) và Camera stream (port 5557). Mặc dù cung cấp khả năng điều khiển toàn diện từ giao diện web, phân tích mã nguồn phát hiện những rủi ro an ninh và độ ổn định vô cùng nghiêm trọng:
+
+
+--- TABLE START ---
+⚠️  CẢNH BÁO QUAN TRỌNG (ENGINEERING WARNING) Các cảnh báo nghiêm trọng về an toàn và bảo mật trong wheeltec_ros2: 1. Thực thi lệnh shell tuỳ ý (shell=True): Node SCADA sử dụng trực tiếp hàm subprocess.Popen(..., shell=True) với các tham số nhận từ mạng không dây mà không qua bất kỳ bộ lọc làm sạch dữ liệu nào (sanitization). Kẻ tấn công có thể thực hiện Remote Code Execution chiếm quyền root. 2. Lắng nghe toàn cục không xác thực: Server bind trực tiếp vào địa chỉ 0.0.0.0 mà hoàn toàn không có cơ chế xác thực danh tính (Authentication) hay mã hoá TLS. 3. Lạm dụng lệnh pkill -9: Trong các launch file chuyển đổi chế độ, hệ thống sử dụng lệnh pkill -9 để cưỡng bức tắt các ROS node, dễ gây ra hiện tượng hỏng dữ liệu bản đồ, không kịp giải phóng cổng phần cứng serial và khiến động cơ mất kiểm soát tức thời.
+--- TABLE END ---
+
+8. ĐỐI CHIẾU TOÀN DIỆN VỚI KIẾN TRÚC `amr_omni`
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+8.1. Cấu trúc phân vùng hiện tại của `amr_omni`
+
+Hệ thống amr_omni được xây dựng với tư duy thiết kế module hoá cao cấp, phân định ranh giới chức năng rõ ràng hơn hẳn các repository mô phỏng hay thương mại khảo sát:
+
+
+--- TABLE START ---
+Mô Đun / Thư Mục | Nhiệm Vụ & Phân Định Trách Nhiệm
+src/omni_control | Mô đun động học Python, chuyển đổi ma trận, kiểm tra tính hợp lệ của lệnh
+src/omni_hardware | Cầu nối STM32 serial bridge, định nghĩa schema topic contract chặt chẽ
+src/omni_description | Mô tả hình học URDF/Xacro tách bạch: chassis, wheels, sensors
+src/omni_localization | Cấu hình tham số EKF 50Hz, AMCL và SLAM Toolbox chuyên biệt
+src/omni_navigation | Cấu hình Nav2 hỗ trợ đầy đủ vận tốc ngang cho khung gầm đa hướng
+src/omni_perception | Xử lý dữ liệu cảm biến: chuyển đổi depth-to-laser và lọc nhiễu scan
+src/omni_safety | Hệ thống an toàn 3 lớp: Command Watchdog, nút dừng E-Stop, Safety Zone
+src/omni_simulation | Node giả lập phản hồi STM32 sát với hành vi vật lý của firmware thật
+firmware/stm32_f407vg_arduino_sim | Firmware vi điều khiển: tính động học, PID 50Hz, lọc Kalman vô hướng
+scripts/ & web/backend | Hệ thống script tự động hoá build/flash và REST/WebSocket API kiểm thử
+--- TABLE END ---
+
+8.2. Ma trận đối chiếu tổng hợp đa tiêu chí
+
+Bảng so sánh tổng hợp dưới đây đối chiếu trực diện 6 hệ thống mã nguồn trên các khía cạnh kỹ thuật cốt lõi:
+
+Hình 5 — Ma trận đối chiếu kiến trúc amr_omni và các repository tham chiếu.
+
+
+--- TABLE START ---
+Tiêu chí | amr_omni | III-Robot-ROS2 | linorobot2 | ros2_omni_sim | rosbot_ekf | wheeltec_ros2
+Phiên bản ROS | ROS 2 Jazzy | ROS 2 Humble | ROS 2 (Humble/Jazzy) | ROS 2 Jazzy | ROS 1 Noetic | ROS 2 Humble
+Loại khung gầm | 4 Mecanum đa hướng | 4 Mecanum | 2WD/4WD/Mecanum | Omni 3–6 bánh | Bốn bánh vi sai | Đa khung gầm
+Firmware MCU | STM32 Bridge + Sim | Bridge thử nghiệm | micro-ROS chuẩn | Không có | rosserial ngoài | STM32 Serial/CAN
+Bộ lọc EKF | Có (50 Hz, 2D) | Không có | Có (50 Hz, 2D) | Không có | Có (20 Hz) | Có (30 Hz)
+Tầng an toàn | Watchdog 250ms + Zone | Chưa rõ | Timeout 200ms | Thiếu timeout | Timeout 200ms | Không đồng nhất
+Hiệu chỉnh SLAM | SLAM Toolbox/AMCL | Cartographer | SLAM Toolbox/AMCL | Config lỗi Vy | Không có | SLAM / RTAB-Map
+Covariance | Đã cấu hình | Thiếu | Có mặc định | Không chuẩn | Cố định | Cần kiểm tra lại
+Đánh giá chung | Cân bằng, module sạch | Thiếu EKF, trùng TF | Tốt nhất micro-ROS | Sai vận tốc ngang | Lỗi thời | Technical debt
+--- TABLE END ---
+
+8.3. Nhận định độc lập từ chuyên gia
+
+• amr_omni có cấu trúc phân tầng vượt trội: Việc tách bạch rạch ròi giữa control, hardware, localization, perception và safety giúp mã nguồn dễ bảo trì, dễ viết test tự động và dễ tích hợp CI/CD hơn rất nhiều so với các repo mô phỏng đơn lẻ.
+
+• Vượt trội về kiến trúc an toàn: Node command_watchdog.py chủ động phát vận tốc zero khi mất kết nối hoặc khi nút E-stop được kích hoạt; simulator tích hợp sẵn mô hình trễ và bộ lọc Kalman vô hướng cho từng kênh vận tốc.
+
+• Điểm cần học hỏi từ linorobot2_hardware: Cần nghiên cứu tích hợp sâu cơ chế micro-ROS lifecycle và fail-safe ngắt động cơ ngay tại tầng phần cứng khi mất agent.
+
+• Điểm cần tránh từ wheeltec_ros2: Tránh xa các thiết kế 'mì ăn liền' như gọi lệnh hệ thống bằng shell=True, hard-code địa chỉ IP và dùng pkill -9 trong môi trường sản xuất.
+
+• Khoảng trống lớn nhất cần lấp đầy: amr_omni hiện tại không thiếu package tính năng, mà thiếu các bước chứng minh thực nghiệm: hiệu chuẩn hệ số encoder, đo đạc covariance thực tế bằng rosbag, chốt quy tắc đơn nguồn TF và kiểm thử tải trên phần cứng thật.
+
+9. EKF, KỸ THUẬT CHỐNG TRÔI VÀ DI CHUYỂN CHÍNH XÁC
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+9.1. Bản chất của EKF: EKF không tự 'xoá' được sai số trôi
+
+Một hiểu lầm rất phổ biến trong giới kỹ sư robot là kỳ vọng bộ lọc Kalman mở rộng (EKF) có thể 'tự động triệt tiêu' hoàn toàn hiện tượng trôi vị trí (odometry drift). Về mặt toán học, EKF chỉ là một thuật toán ước lượng trạng thái tối ưu cục bộ (Dead Reckoning) dựa trên mô hình động học và cảm biến quán tính. Nếu chỉ có Encoder bánh xe và IMU, robot chắc chắn vẫn sẽ bị trôi dạt toạ độ theo thời gian do hiện tượng trượt vi mô của bánh xe, sai lệch hình học và độ lệch dịch chuyển của con quay hồi chuyển (gyro bias).
+
+Cấu trúc định vị chuẩn mực bắt buộc phải phân chia thành hai tầng độc lập như trong Hình 3:
+
+Hình 3 — Cơ chế định vị phân tầng kết hợp EKF (tần số cao) và LiDAR SLAM (tần số thấp).
+
+Quy tắc bất biến: Tầng Odometry (EKF) phải phát dữ liệu liên tục, mượt mà và không bao giờ được phép nhảy cóc toạ độ để các thuật toán bám quỹ đạo (MPPI/DWB) không bị sốc ga. Tầng Bản đồ (SLAM/AMCL) định kỳ tính toán độ trôi tích luỹ và hiệu chỉnh thông qua phép biến đổi toạ độ map → odom.
+
+9.2. Cấu hình EKF khuyến nghị cho robot omni 2D
+
+Trong file cấu hình amr_omni/src/omni_localization/config/ekf.yaml, các thông số nền tảng đã được thiết lập chính xác: frequency = 50.0, two_d_mode = true, world_frame = odom. Cần kiểm tra rà soát 5 điểm mấu chốt trước khi nghiệm thu:
+
+• Khung quy chiếu vận tốc: Đảm bảo trường twist.twist.linear.x/y trong wheel/odom được tính đúng trong hệ toạ độ gắn trên thân robot (base_link), không bị nhầm lẫn với hệ toạ độ thế giới.
+
+• Quy ước toạ độ IMU: Góc quay và vận tốc góc phải tuân thủ chuẩn toạ độ ENU (East-North-Up) của ROS; chiều dương trục z quay ngược chiều kim đồng hồ; loại bỏ gia tốc trọng trường khi cấu hình fusion gia tốc.
+
+• Ma trận Covariance thực tế: Tuyệt đối không để các phần tử đường chéo của ma trận hiệp phương sai bằng 0 (khiến bộ lọc tin tuyệt đối vào cảm biến dẫn đến phân kỳ toán học). Cần đo đạc phương sai thực nghiệm từ rosbag.
+
+• Quyền broadcast toạ độ: Chỉ duy nhất node EKF được phép phát broadcast transform odom → base_link. Toàn bộ simulator và driver phần cứng phải tắt cờ phát TF này khi EKF hoạt động.
+
+• Cây biến đổi tĩnh: Biến đổi từ base_footprint → base_link và từ base_link tới các cảm biến LiDAR, IMU, Camera phải được định nghĩa chuẩn xác trong URDF thông qua static_transform_publisher.
+
+9.3. Động học bánh Mecanum và các nguồn gây sai lệch quỹ đạo
+
+Với cấu hình bốn bánh Mecanum bố trí đối xứng, quy ước thứ tự bánh và góc nghiêng con lăn (roller 45°) là nhân tố quyết định đến tính đúng đắn của toàn bộ chuyển động. Mô hình động học được mô tả chi tiết trong Hình 4:
+
+Hình 4 — Nguyên lý động học Mecanum, cấu hình con lăn và bảng chiều quay động cơ.
+
+Trong file amr_omni/src/omni_control/omni_control/kinematics.py, ma trận động học thuận và ngược sử dụng các hệ số $d = \sqrt{0.5}$ và bán kính hình học $R = 0.5\sqrt{L^2 + W^2}$:
+
+Công thức động học ngược dạng ma trận:
+
+$$\begin{bmatrix} \omega_1 \\ \omega_2 \\ \omega_3 \\ \omega_4 \end{bmatrix} = \frac{1}{r} \begin{bmatrix} d & d & R \\ -d & d & R \\ -d & -d & R \\ d & -d & R \end{bmatrix} \begin{bmatrix} v_x \\ v_y \\ \omega_z \end{bmatrix}$$
+
+Các nguyên nhân chính dẫn đến việc robot bị đi xéo hoặc xoay lệch khi di chuyển thẳng:
+
+• Lắp nhầm thứ tự bánh hoặc góc con lăn con bị ngược (con lăn phải tạo thành hình chữ X nhìn từ trên xuống).
+
+• Bán kính tải trọng thực tế của 4 bánh không đồng đều do độ nén lốp hoặc gia công cơ khí.
+
+• Khoảng cách cơ sở $L$ (wheelbase) và $W$ (track_width) đo đạc thực tế bị sai lệch so với bản vẽ thiết kế.
+
+• Hệ số ma sát giữa con lăn và mặt sàn không đồng nhất, gây hiện tượng trượt vi mô bất đối xứng.
+
+9.4. Quy trình 5 bước hiệu chuẩn để robot chuyển động chuẩn xác
+
+Để loại bỏ hoàn toàn các lỗi tích luỹ, quá trình hiệu chuẩn thực địa bắt buộc phải trải qua quy trình 5 bước tuần tự:
+
+Bước A — Kiểm tra cơ khí và hiệu chuẩn Encoder
+
+• Kiểm tra 4 bánh xe tiếp xúc đồng đều với mặt sàn (không bị bập bênh treo bánh). Con lăn xoay trơn tru không bị kẹt rác.
+
+• Đo thực tế số xung encoder trên 1 vòng quay (counts_per_rev) bằng cách quay tay chính xác 10 vòng trục bánh.
+
+• Chạy từng động cơ riêng lẻ ở tốc độ thấp (10% RPM định mức), kiểm tra chiều dương quy ước của từng khớp nối.
+
+• Chạy kiểm tra tính nhất quán toán học: forward_kinematics(inverse_kinematics(twist)) sai số tính toán phải nhỏ hơn $10^{-6}$.
+
+Bước B — Hiệu chuẩn chuyển động thực tế (Motion Calibration)
+
+Thực hiện các bài test đo đạc quãng đường bằng thước laser và mốc chuẩn sàn:
+
+
+--- TABLE START ---
+Bài Test Hiệu Chuẩn | Lệnh Điều Khiển | Tiêu Chuẩn Đánh Giá Thực Địa
+Đi thẳng tới | $(+v_x, 0, 0)$ | Robot đi thẳng 2.0 m; đo sai số khoảng cách $\Delta x$ và độ lệch góc $\Delta \theta$.
+Chạy lùi | $(-v_x, 0, 0)$ | Kiểm tra dấu động cơ không bị giật, quỹ đạo đối xứng hoàn toàn với đi thẳng.
+Dịch chuyển ngang | $(0, \pm v_y, 0)$ | Dịch ngang 1.0 m sang trái và phải; kiểm tra không sinh ra vận tốc dọc $v_x$ ký sinh.
+Quay tròn tại chỗ | $(0, 0, \pm \omega_z)$ | Quay 360° tại chỗ 5 vòng liên tục; kiểm tra tâm robot không bị trượt vòng xoắn ốc.
+Chạy quỹ đạo vuông | 4 cạnh thẳng + 4 góc quay | Đo sai số vị trí điểm đầu và điểm cuối khi khép kín vòng lặp (Loop closure error).
+--- TABLE END ---
+
+Bước C — Cảm biến IMU và bộ lọc EKF
+
+• Giữ robot đứng yên tuyệt đối trong 10 phút để thu thập dữ liệu thô, tính toán độ lệch tĩnh (bias) của Gyroscope.
+
+• Trích xuất độ lệch chuẩn (Standard Deviation $\sigma$) từ rosbag để điền vào ma trận covariance của EKF.
+
+• Chỉ kích hoạt fuse vận tốc góc $\omega_z$ từ Gyroscope; chỉ fuse góc hướng Quaternion nếu thuật toán lọc hướng IMU đã được hiệu chuẩn khử từ trường nhiễu.
+
+Bước D — Hiệu chuẩn LiDAR và đóng vòng lặp SLAM
+
+• Lọc bỏ các tia quét quét trúng chân đế hoặc thân robot bằng bộ lọc laser filter.
+
+• Kiểm tra chất lượng bản đồ: Các bức tường song song không bị phân tách thành 2 vạch (ghost walls) khi robot tăng tốc.
+
+Bước E — Tinh chỉnh Nav2 và lớp an toàn
+
+• Bật thông số vận tốc ngang trong bộ điều khiển MPPI/DWB: thiết lập max_vel_y > 0 và số mẫu vy_samples > 0.
+
+• Giới hạn gia tốc tăng giảm đột ngột (acc_lim_x, acc_lim_y) để hạn chế tối đa quán tính gây trượt con lăn bánh xe.
+
+9.5. Bảng chẩn đoán nguyên nhân gây trôi theo triệu chứng thực địa
+
+Kỹ sư vận hành có thể sử dụng bảng tra cứu nhanh dưới đây để cô lập lỗi khi gặp sự cố:
+
+
+--- TABLE START ---
+Hiện Tượng / Triệu Chứng | Nguyên Nhân Khả Dĩ Nhất | Biện Pháp Kiểm Tra & Khắc Phục
+Đi thẳng bị cong lệch về một phía | Sai tỉ lệ bán kính bánh xe hoặc PID động cơ một bên đáp ứng chậm | Đo dòng tải và đếm xung encoder độc lập từng bánh
+Dịch chuyển ngang bị trôi dọc (Vx) | Nhầm thứ tự bánh xe hoặc sai góc nghiêng con lăn roller | Kiểm tra ma trận động học và chiều lắp con lăn
+Robot đứng yên nhưng góc quay vẫn tăng | Gyroscope bị trôi bias hoặc có 2 node cùng broadcast TF | Xem dữ liệu thô /imu/data_raw và kiểm tra cây TF bằng tf2_tools
+Toạ độ EKF bị giật cục ngắt quãng | Lệch timestamp giữa IMU và Encoder hoặc covariance gán bằng 0 | Đo tần số topic bằng ros2 topic hz và kiểm tra độ trễ mạng
+Bản đồ SLAM bị méo khi robot quay | Bánh xe bị trượt khi quay hoặc biến đổi laser → base_link sai | Giảm gia tốc xoay và đo lại khoảng cách cơ khí đặt LiDAR
+Nav2 không chịu điều khiển đi ngang | Cấu hình controller chưa bật trục y (max_vel_y = 0) | Rà soát file tham số nav2_params.yaml của DWB/MPPI controller
+--- TABLE END ---
+
+10. KẾT LUẬN TỔNG THỂ VÀ LỘ TRÌNH TRIỂN KHAI
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+10.1. Kết luận đánh giá hệ thống
+
+Kiến trúc hiện tại của amr_omni sở hữu nền tảng thiết kế vượt bậc và toàn diện hơn so với việc sao chép đơn thuần bất kỳ repository riêng lẻ nào. Hệ thống đã có sự đồng bộ động học giữa tầng Python ROS 2 và tầng C++ vi điều khiển, có bộ lọc EKF chuẩn mực, có node an toàn watchdog và mô phỏng phản hồi chân thực. Khuyến nghị chiến lược là tiếp tục hoàn thiện trên bộ khung kiến trúc này, đồng thời chọn lọc kế thừa những tinh hoa kỹ thuật từ các repo đối chiếu:
+
+• Kế thừa từ linorobot2_hardware: Cơ chế quản lý vòng đời micro-ROS lifecycle và kiến trúc thư viện phần cứng độc lập.
+
+• Kế thừa từ linorobot2: Cấu hình tham số phối hợp hoàn hảo giữa EKF và SLAM Toolbox.
+
+• Kế thừa từ wheeltec_ros2: Cấu trúc đóng gói khung truyền nhị phân Serial/CAN công nghiệp, các kịch bản auto-recharge (tuyệt đối không lấy mã nguồn SCADA lạm dụng lệnh shell).
+
+• Kế thừa từ III-Robot-ROS2: Quy trình làm việc với Cartographer và trực quan hoá marker điều khiển.
+
+10.2. Lộ trình triển khai ưu tiên (Roadmap)
+
+Lộ trình hành động được phân loại theo mức độ khẩn cấp và tầm ảnh hưởng đối với sự ổn định của hệ thống:
+
+
+--- TABLE START ---
+Mức Ưu Tiên | Hạng Mục Công Việc | Tiêu Chí Nghiệm Thu Kỹ Thuật (DoD)
+P0 (Bắt buộc) | Quy tắc đơn nguồn TF (Single Authority) | Đảm bảo chỉ có EKF phát odom → base_link và chỉ SLAM phát map → odom. Loại bỏ hoàn toàn duplicate TF.
+P0 (Bắt buộc) | Chốt giao thức phần cứng (Contract) | Đóng băng cấu trúc frame truyền STM32: định dạng nhị phân, scale factor 1000, checksum XOR, timeout 200ms.
+P0 (Bắt buộc) | Kiểm thử hồi quy động học (Kinematics) | Thực hiện unit test kiểm tra forward/inverse kinematics, kiểm tra bão hoà vận tốc và triệt tiêu giá trị NaN/Inf.
+P0 (Bắt buộc) | Nghiệm thu tầng an toàn (Safety Gate) | Xác nhận nút E-stop vật lý/phần mềm và việc ngắt kết nối micro-ROS đều lập tức dừng động cơ tại MCU.
+P1 (Quan trọng) | Hiệu chuẩn Encoder & PID vận tốc | Tinh chỉnh vòng lặp kín PID từng động cơ; sai số vận tốc ổn định dưới 3% trong dải tốc độ làm việc.
+P1 (Quan trọng) | Xác lập ma trận Covariance thực tế | Ghi rosbag ở các trạng thái tĩnh và động; cập nhật các tham số sai số EKF dựa trên dữ liệu thực tế.
+P1 (Quan trọng) | Tối ưu hoá tham số Nav2 Omni | Bật toàn diện khả năng dịch chuyển ngang trong Nav2; tinh chỉnh giới hạn gia tốc để triệt tiêu trượt lốp.
+P2 (Nâng cao) | Kiểm thử Hardware-in-the-Loop (HIL) | Chạy song song kịch bản điều khiển giữa vi điều khiển STM32 thực tế và node mô phỏng stm32_simulator.
+P2 (Nâng cao) | Hạ tầng giám sát & Chẩn đoán | Xây dựng node chẩn đoán diagnostic_updater: cảnh báo frame drop, quá nhiệt động cơ, sụt áp ắc quy.
+P2 (Nâng cao) | Soak Test tải trọng liên tục | Vận hành robot chạy liên tục 4 giờ có tải; kiểm thử các kịch bản mất mạng đột ngột, pin yếu tự về trạm sạc.
+--- TABLE END ---
+
+11. PHỤ LỤC KIỂM THỬ VÀ TỪ ĐIỂN TRUY VẾT MÃ NGUỒN
+
+――――――――――――――――――――――――――――――――――――――――――――――――
+
+11.1. Checklist kiểm tra an toàn trước khi hạ bánh robot xuống đất
+
+Trước khi đặt robot xuống mặt sàn để chạy thực tế, kỹ sư vận hành bắt buộc phải kê kích khung gầm để 4 bánh xe quay tự do trong không gian và kiểm tra tuần tự 10 điều kiện tiên quyết sau:
+
+[  ]  Sử dụng lệnh ros2 topic echo xác nhận đúng định dạng kiểu dữ liệu và tần số phát của /cmd_vel, wheel/odom, /imu/data.
+
+[  ]  Sử dụng lệnh ros2 topic hz kiểm tra độ ổn định tần số; đảm bảo trường thời gian timestamp tăng tuyến tính, không bị đứng hay nhảy lùi.
+
+[  ]  Sử dụng lệnh ros2 run tf2_ros tf2_echo xác minh tính toàn vẹn của chuỗi: map → odom → base_link → sensors.
+
+[  ]  Xác nhận duy nhất một node duy nhất broadcast transform odom → base_link (kiểm tra bằng ros2 run tf2_tools view_frames).
+
+[  ]  Kích hoạt trạng thái E-Stop; xác nhận cả phần mềm an toàn ROS và vi điều khiển MCU đều chuyển trạng thái dừng khẩn cấp.
+
+[  ]  Mô phỏng mất lệnh: ngắt publish /cmd_vel; kiểm tra node an toàn chuyển safe_cmd_vel về giá trị 0 sau đúng 250 ms.
+
+[  ]  Mô phỏng đứt cáp: rút cáp USB/Serial kết nối micro-ROS; kiểm tra MCU tự động kích hoạt ngắt phần cứng dừng động cơ sau 200 ms.
+
+[  ]  Xác nhận quy ước thứ tự 4 bánh xe và chiều quay giữa file URDF, script Python, simulator và firmware STM32 hoàn toàn trùng khớp.
+
+[  ]  Kiểm tra toàn bộ các topic cảm biến: tuyệt đối không xuất hiện các giá trị lỗi phân kỳ toán học NaN hoặc Inf.
+
+[  ]  Đo đạc thực tế toạ độ cơ khí đặt mắt cảm biến LiDAR và IMU so với tâm robot; cập nhật chuẩn xác vào file mô tả sensors.xacro.
+
+11.2. Bảng truy vết mã nguồn (Traceability Matrix)
+
+Bảng đối chiếu dưới đây cung cấp liên kết chi tiết giữa các file thực thi trong amr_omni và các file mã nguồn mẫu trong thư mục temp:
+
+
+--- TABLE START ---
+Hạng Mục Chức Năng | Mã Nguồn Trong amr_omni | Mã Nguồn Tham Chiếu Trong temp
+Động học (Kinematics) | src/omni_control/omni_control/kinematics.py firmware/.../src/kinematics.cpp | linorobot2_hardware/.../kinematics.cpp ros2_omni_robot_sim/src/kinematics.cpp
+Bộ lọc vị trí (EKF) | src/omni_localization/config/ekf.yaml | linorobot2_base/config/ekf.yaml wheeltec_ros2/.../config/ekf.yaml
+An toàn & Watchdog | src/omni_safety/omni_safety/command_watchdog.py | linorobot2_hardware/.../firmware.ino (timeout)
+Giao thức MCU Bridge | src/omni_hardware/omni_hardware/stm32_contract.py | III-Robot-ROS2/.../protocol.py wheeltec_ros2/.../v650_wheeltec_robot.cpp
+Trình mô phỏng (Sim) | src/omni_simulation/omni_simulation/stm32_simulator.py | ros2_omni_robot_sim/launch/gazebo_sim.launch.py
+Mô hình URDF / TF | src/omni_description/urdf/ | linorobot2_description/urdf/ wheeltec_robot_urdf/
+--- TABLE END ---
+
+
+--- TABLE START ---
+💡  KHUYẾN NGHỊ TRIỂN KHAI (RECOMMENDED PRACTICE) Khuyến nghị bảo toàn tài liệu: Khi chuyển giao tài liệu kỹ thuật này, bắt buộc giữ nguyên các đường dẫn mã nguồn chi tiết, hệ thống hình vẽ sơ đồ phân lớp và các đề mục phân tích rủi ro. Các thông tin về rủi ro và các điểm chưa kiểm chứng thực địa chính là bức tường bảo vệ quan trọng nhất giúp đội ngũ kỹ sư không ngộ nhận rằng hệ thống robot đã sẵn sàng vận hành công nghiệp mà bỏ qua các bước kiểm định an toàn tối thiểu.
+--- TABLE END ---
+

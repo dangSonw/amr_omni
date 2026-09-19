@@ -1,0 +1,46 @@
+# DOCUMENT: Calib_2.docx
+
+Sai lệch không gian (Spatial Extrinsics) và Hiệu ứng cánh tay đòn (Lever-Arm)
+
+Khi nhiều cảm biến được gắn trên khung robot, mỗi cảm biến sở hữu một hệ toạ độ riêng (Frame of Reference): frame bánh xe (base_link), frame IMU (imu_link), frame LiDAR (lidar_link) và frame Camera (camera_link). Phép biến đổi toạ độ cứng (Rigid Transformation) giữa hai frame bao gồm ma trận quay R thuộc nhóm SO(3) và vector dịch chuyển p thuộc R^3:
+
+T_{B}^{S} = [ R_B^S  |  p_B^S ;  0  |  1 ]
+
+Nếu khoảng cách dịch chuyển p (lever-arm) giữa tâm quay robot và IMU/LiDAR bị đo sai chỉ 2 cm, khi robot quay tròn tại chỗ với vận tốc góc 1.0 rad/s, cảm biến gia tốc sẽ đo thấy một thành phần gia tốc hướng tâm giả tạo a = w^2 * p = 0.02 m/s^2. Nếu thuật toán fusion không có thông số lever-arm chính xác, nó sẽ hiểu nhầm robot đang bị gia tốc trượt và dẫn đến ước lượng vị trí bị giật hoặc sai lệch hoàn toàn!
+
+Sai lệch thời gian (Temporal Latency) và Trôi đồng hồ (Clock Drift)
+
+Các cảm biến hoạt động với các tần số lấy mẫu và giao thức truyền thông khác nhau: IMU qua SPI/I2C (200–500 Hz), Wheel Encoder qua CAN/Serial (50–100 Hz), LiDAR qua Ethernet UDP (10–20 Hz), Camera qua USB3/MIPI (30 Hz).
+
+Hiện tượng trễ thời gian (Time Delay - Delta t) xuất phát từ: trễ đo đạc cảm biến, trễ truyền nhận buffer UART/USB, và trễ xử lý gói tin của hệ điều hành (OS scheduling jitter).
+
+Tại vận tốc di chuyển 1.5 m/s, một độ trễ thời gian tưởng chừng nhỏ như Delta t = 50 ms (0.05 s) sẽ gây ra sai số vị trí không gian lên tới Delta s = v * Delta t = 0.075 m (7.5 cm) và sai lệch góc xoay hàng độ khi robot chuyển hướng! Đây chính là nguyên nhân hàng đầu khiến các điểm quét LiDAR bị mờ nhòe (point cloud ghosting) và EKF bị giật cục.
+
+Hình 2 — Mô hình hoá khung hiệu chuẩn không gian (Extrinsics) và đồng bộ thời gian (Temporal) đa cảm biến.
+
+HIỆU CHUẨN KHÔNG GIAN VÀ THỜI GIAN VỚI KALIBR
+
+Toolbox Kalibr được phát triển bởi Autonomous Systems Lab (ASL) thuộc Đại học ETH Zurich, là tiêu chuẩn công nghiệp toàn cầu trong bài toán hiệu chuẩn hệ thống Visual-Inertial (Camera - IMU) và có khả năng mở rộng mạnh mẽ sang LiDAR - IMU.
+
+Khung liên tục B-spline (Continuous-Time State Representation)
+
+Hầu hết các phương pháp hiệu chuẩn truyền thống rời rạc hoá thời gian, dẫn đến việc khi so khớp một phép đo IMU ở tần số 400 Hz với một khung hình Camera ở 30 Hz, người ta phải nội suy tuyến tính vị trí. Điều này tạo ra sai số làm mịn (smoothing error) nghiêm trọng ở các đoạn đổi hướng hoặc rung lắc mạnh.
+
+Đột phá cốt lõi của Kalibr là mô hình hoá toàn bộ quỹ đạo của hệ thống cảm biến như một đường cong liên tục trong không gian trạng thái R^3 x SO(3) sử dụng B-splines tích phân bậc cao (Cumulative B-splines):
+
+T(t) = exp( Sum_{i=0}^n B_{i,d}(t) * Omega_i )
+
+Lợi ích toán học vượt bậc của biểu diễn liên tục B-spline:
+
+1. Đạo hàm giải tích hoàn hảo: Ta có thể lấy đạo hàm bậc 1 và bậc 2 theo giải tích (analytic derivatives) trực tiếp từ đường cong B-spline tại BẤT KỲ thời điểm t nào để tìm ra vận tốc tuyến tính, gia tốc tuyến tính, vận tốc góc và đạo hàm góc quay mà KHÔNG CẦN sai phân số học.
+
+2. Khớp phép đo bất đồng bộ: Các cảm biến có tần số lấy mẫu hoàn toàn bất đồng bộ (Asynchronous) đều có thể được ánh xạ chính xác vào đúng thời điểm xuất hiện của chúng trên cùng một hàm liên tục.
+
+Đồng thời tối ưu hoá Ngoại suy (Extrinsics) và Độ trễ thời gian (Time Delay)
+
+Hàm mục tiêu tổng quát của Kalibr giải quyết đồng thời bài toán tối ưu phi tuyến trên toàn bộ chuỗi dữ liệu thu thập:
+
+min_{T_C^I, Delta t, b(t), T(t)} [ Res_{reprojection}(Camera) + Res_{accel}(IMU) + Res_{gyro}(IMU) ]
+
+Trong đó, tham số độ trễ thời gian Delta t giữa xung chụp ảnh của Camera và thời điểm ghi nhận của IMU được đưa trực tiếp vào làm biến tối ưu. Nhờ đó, Kalibr có khả năng ước lượng độ lệch thời gian chính xác tới micro-giây (micro-seconds) và ma trận biến đổi toạ độ 6-DOF T_C^I chính xác tới phân số milimet và góc milliradian.
+

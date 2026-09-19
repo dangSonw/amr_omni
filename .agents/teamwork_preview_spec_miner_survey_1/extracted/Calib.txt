@@ -1,0 +1,139 @@
+# DOCUMENT: Calib.docx
+
+HIỆU CHUẨN NỘI TẠI IMU (IMU INTRINSIC CALIBRATION)
+
+Cảm biến quán tính MEMS 6 bậc tự do (6-DoF) bao gồm cụm 3 trục gia tốc kế (Accelerometer) và 3 trục con quay hồi chuyển (Gyroscope). Do giới hạn của công nghệ vi cơ điện tử, các trục cảm biến thực tế không bao giờ vuông góc hoàn hảo 90°, hệ số khuếch đại mạch ADC bị sai lệch và luôn tồn tại dòng rò gây ra bias tĩnh ban đầu.
+
+2.1. Mô hình toán học sai số nội tại IMU
+
+Mô hình vật lý chuẩn được thiết lập bởi Tedaldi, Pretto và Menegatti (ICRA 2014) mô tả quan hệ giữa giá trị đo thô và giá trị vật lý thực tế:
+
+• Mô hình gia tốc kế: Đối với gia tốc kế (Accelerometer):
+
+
+--- TABLE START ---
+a_raw = T_a * S_a * a_true + b_a + n_a  Trong đó: - a_true: Vector gia tốc thực tế (kể cả gia tốc trọng trường g) - S_a = diag(s_ax, s_ay, s_az): Ma trận đường chéo hệ số tỉ lệ (Scale Factors) - T_a: Ma trận chuyển đổi từ hệ toạ độ không trực giao (Non-orthogonal) sang hệ toạ độ trực giao:        [    1         0         0    ] T_a =  [ -α_yz        1         0    ]        [  α_zy     -α_zx        1    ]        với α_ij là các góc lệch trực giao giữa các trục cảm biến cơ khí. - b_a = [b_ax, b_ay, b_az]^T: Vector độ lệch điểm không tĩnh (Deterministic Bias) - n_a: Nhiễu trắng Gauss (White Noise)
+--- TABLE END ---
+
+• Mô hình con quay hồi chuyển: Đối với con quay hồi chuyển (Gyroscope):
+
+
+--- TABLE START ---
+ω_raw = T_g * S_g * ω_true + b_g + n_g  - S_g = diag(s_gx, s_gy, s_gz): Ma trận hệ số tỉ lệ con quay - T_g: Ma trận không trực giao của con quay (tương tự T_a) - b_g: Vector bias tĩnh của con quay - n_g: Nhiễu trắng đo lường vận tốc góc
+--- TABLE END ---
+
+Để thu được giá trị đo đã hiệu chuẩn (Calibrated Measurements) đưa vào hệ thống SLAM, ta thực hiện phép biến đổi ngược:
+
+
+--- TABLE START ---
+a_calib = (T_a * S_a)^(-1) * (a_raw - b_a) ω_calib = (T_g * S_g)^(-1) * (ω_raw - b_g)
+--- TABLE END ---
+
+repository `imu_tk` (Tedaldi / Pretto, ICRA 2014)
+
+Repository imu_tk (Kyle-ak/imu_tk, gaochq/imu_tk) là mã nguồn triển khai bài báo kinh điển 'A Robust and Easy to Implement Method for IMU Calibration without External Equipments' (ICRA 2014). Đây là phương pháp nền tảng được trích dẫn trong hầu hết các nghiên cứu VIO/SLAM.
+
+Cơ chế hoạt động không cần bàn xoay (Turntable-free): Thuật toán khai thác một hằng số vật lý bất biến: khi IMU đứng yên ở bất kỳ tư thế nào, độ lớn của vector gia tốc đo được luôn bằng đúng độ lớn của gia tốc trọng trường Trái Đất: ||a_true|| = ||g|| ≈ 9.80665 m/s².
+
+Bộ phát hiện khoảng tĩnh (Static Detector): Người dùng chỉ cần cầm IMU bằng tay và đặt lên bàn ở nhiều góc nghiêng tĩnh khác nhau (thường từ 36 đến 50 vị trí). Một bộ lọc cửa sổ trượt (sliding-window variance filter) sẽ tự động phát hiện khi nào IMU đứng yên dựa trên phương sai của gia tốc kế và con quay hồi chuyển, tự động trích xuất các khoảng thời gian tĩnh [t_start, t_end].
+
+Tối ưu hóa tham số gia tốc kế: Giải bài toán tối ưu phi tuyến Levenberg-Marquardt (LM) với hàm mục tiêu cực tiểu hoá sai lệch độ lớn trọng trường trên N vị trí tĩnh:
+
+
+--- TABLE START ---
+min_{T_a, S_a, b_a} ∑_{k=1}^M ( || (T_a * S_a)^(-1) * (a_k - b_a) ||^2 - ||g||^2 )^2
+--- TABLE END ---
+
+Hiệu chuẩn con quay hồi chuyển: Sau khi đã có tham số gia tốc kế, góc nghiêng của IMU tại hai vị trí tĩnh k và k+1 được xác định chính xác từ vector trọng lực g_k và g_{k+1}. Vận tốc góc đo được trong quá trình chuyển động giữa hai vị trí này được tích phân theo thời gian (Numerical Integration) trên nhóm Lie SO(3) để thu được góc quay dự đoán. Hàm mất mát tối ưu hoá con quay sẽ so sánh góc quay tích phân với góc quay suy ra từ trọng trường để tìm T_g, S_g, b_g.
+
+repository `dpkoch/imu_calib` (Phương pháp 6 hướng ST AN4508)
+
+Gói ROS dpkoch/imu_calib được thiết kế dựa trên tài liệu ứng dụng AN4508 của hãng bán dẫn STMicroelectronics. Đây là giải pháp đơn giản, gọn nhẹ và cực kỳ phổ biến trong cộng đồng robot ROS 1.
+
+Quy trình 6 hướng cơ bản: Yêu cầu người dùng đặt cảm biến IMU lần lượt ở 6 hướng chuẩn tương ứng với 6 mặt của một khối lập phương (+X hướng lên, -X hướng lên, +Y hướng lên, -Y hướng lên, +Z hướng lên, -Z hướng lên). Tại mỗi mặt, trọng lực 1g sẽ tác động hoàn toàn lên một trục duy nhất trong khi hai trục còn lại bằng 0.
+
+Thuật toán Bình phương tối thiểu (Least Squares): Với 6 hướng đo, hệ thống giải hệ phương trình tuyến tính để xác định ma trận tỉ lệ đường chéo 3x3 và vector bias 3x1. Do mô hình giả định các trục vuông góc hoàn hảo, phương pháp này bỏ qua các hệ số không trực giao T_a (misalignment).
+
+Điểm mạnh thực tế: Package cung cấp sẵn hai node ROS thực thi: node do_calib để thu thập dữ liệu và xuất file cấu hình YAML, và node apply_calib đóng vai trò là một bộ lọc trung gian (ROS filter node) đăng ký lắng nghe /imu/data_raw, áp dụng ma trận calib và phát lại ra topic /imu/data đã khử bias và scale factor theo thời gian thực.
+
+repository `imu_utils` + `code_utils` (gaowenliang)
+
+Được phát triển bởi Gao Wenliang (Đại học HKUST, đồng tác giả VINS-Mono), gaowenliang/imu_utils là công cụ ROS được sử dụng rộng rãi nhất trong cộng đồng SLAM châu Á.
+
+Mục tiêu chính: Khác với imu_tk tập trung vào mô hình đa vị trí động, imu_utils tập trung vào việc tính toán nhanh bias tĩnh trung bình và kết hợp với thuật toán Allan Variance để phân tích phổ nhiễu.
+
+Tương thích hoàn hảo với Kalibr: Đầu ra của imu_utils được định dạng trực tiếp thành file cấu hình YAML chuẩn mà toolkit Kalibr và VINS-Mono yêu cầu (chứa các trường rostopic, update_rate, gyro_noise_density, gyro_random_walk, accel_noise_density, accel_random_walk).
+
+3 công cụ hiệu chuẩn nội tại
+
+
+--- TABLE START ---
+Tiêu Chí Kỹ Thuật | imu_tk (Tedaldi) | dpkoch/imu_calib | imu_utils (gaowenliang)
+Mô hình sai số giải quyết | Scale (3), Misalignment (6), Bias (3) = 12 tham số/cảm biến | Scale (3), Bias (3) = 6 tham số (Bỏ qua Misalignment) | Bias tĩnh (3) + Phổ Allan Variance (ARW, VRW, BI)
+Yêu cầu thao tác phần cứng | Cầm tay đổi 36 - 50 vị trí tĩnh tuỳ ý (Không cần gá chuẩn) | Đặt chính xác 6 mặt lập phương vuông góc với mặt bàn | Đặt IMU cố định tuyệt đối trên bàn 2 - 4 giờ
+Độ phức tạp thuật toán | Tối ưu phi tuyến Levenberg-Marquardt + Tích phân Lie SO(3) | Nghiệm đóng giải đại số tuyến tính Bình phương tối thiểu | Tính giá trị trung bình thống kê + Phân tích phương sai Allan
+Độ chính xác đạt được | Rất cao (Triệt tiêu gần như hoàn toàn sai số hình học) | Trung bình (Phụ thuộc lớn vào độ phẳng của bề mặt đặt) | Cao đối với đặc tính nhiễu ngẫu nhiên, trung bình về hình học
+Định dạng tích hợp ROS | Thư viện C++ thuần (Cần viết node ROS bọc ngoài) | Package ROS hoàn chỉnh (do_calib, apply_calib node) | Package ROS catkin, xuất file imu.yaml tương thích Kalibr
+Khuyến nghị sử dụng | Bắt buộc cho IMU MEMS cấp thấp/trung có độ lệch trục lớn | Thích hợp cho robot di động 2D đơn giản cần setup nhanh | Chuẩn mực để lấy tham số cấu hình cho VINS / FAST-LIO
+--- TABLE END ---
+
+Lý thuyết phương sai Allan (Allan Variance - IEEE Std 952-1997)
+
+Phương sai Allan σ²(τ) là một phương pháp phân tích miền thời gian được thiết kế để phân tách và định lượng các nguồn nhiễu ngẫu nhiên khác nhau trong chuỗi dữ liệu chu kỳ. Giả sử ta ghi nhận chuỗi đo lường dài hạn gồm N mẫu với chu kỳ lấy mẫu τ_0:
+
+Thuật toán phân cụm: Chia tổng thời gian đo thành các cụm (clusters) có độ dài thời gian τ = m * τ_0. Tính giá trị trung bình của từng cụm a_k(τ).
+
+Công thức phương sai Allan: Được tính bằng kỳ vọng sai phân giữa hai cụm kế tiếp:
+
+
+--- TABLE START ---
+σ^2(τ) = 1 / ( 2 * (K - 1) ) * ∑_{k=1}^{K-1} ( a_{k+1}(τ) - a_k(τ) )^2  Độ lệch Allan (Allan Deviation - ADEV) là căn bậc hai: σ(τ) = sqrt( σ^2(τ) )
+--- TABLE END ---
+
+Khi vẽ đường cong ADEV trên hệ trục toạ độ Log-Log (Hình 3), các loại nhiễu khác nhau sẽ xuất hiện tại các vùng có độ dốc (Slope) đặc trưng:
+
+1. Angle / Velocity Random Walk (Nhiễu trắng - White Noise): Xuất hiện ở vùng thời gian tích phân ngắn (τ nhỏ), đường cong có độ dốc Slope = -1/2. Giá trị mật độ phổ nhiễu trắng N được đọc trực tiếp tại điểm giao cắt với trục hoành tại τ = 1 giây. Đơn vị: rad/s/√Hz (đối với Gyro) hoặc m/s²/√Hz (đối với Accel).
+
+2. Bias Instability (Độ bất ổn định điểm không): Đại diện cho hiện tượng trôi chậm của bias do hiệu ứng nhiệt và nhiễu hồng (1/f flicker noise). Xuất hiện tại đáy trũng nhất của đường cong ADEV, nơi tiếp tuyến có độ dốc Slope = 0. Giá trị tại đáy này chia cho hệ số √(2*ln(2)/π) ≈ 0.664 cho ta hệ số Bias Instability B. Đơn vị: rad/s hoặc m/s².
+
+3. Rate Random Walk (Nhiễu trôi ngẫu nhiên): Xuất hiện ở vùng thời gian dài (τ lớn), đường cong đi lên với độ dốc Slope = +1/2. Đại diện cho sự tích luỹ trôi dạt không giới hạn của cảm biến theo thời gian dài.
+
+Hình 3 — Đồ thị Allan Deviation (ADEV) đặc trưng và quy trình trích xuất tham số nhiễu cho bộ lọc EKF/SLAM.
+
+repository `ori-drs/allan_variance_ros` và bản ROS 2 `ripl-lab/allan_variance_ros2`
+
+Được phát triển bởi Oxford Robotics Institute (ORI), allan_variance_ros là công cụ C++ chuẩn công nghiệp hiện nay để tính toán phương sai Allan từ dữ liệu ROS bag.
+
+Tối ưu hoá hiệu năng cực cao: Khác với các script Python chậm chạp, allan_variance_ros được viết bằng C++ đa luồng (multi-threading OpenMP). Nó có thể xử lý các file rosbag dung lượng hàng chục gigabyte ghi nhận trong 6 giờ ở tần số 400 Hz chỉ trong vòng chưa đầy 1 phút.
+
+Tự động khớp đường cong (Curve Fitting): Package không chỉ tính các điểm rời rạc của σ(τ) mà còn sử dụng thuật toán phi tuyến để khớp chính xác mô hình 5 thành phần nhiễu, tự động trích xuất các hệ số ARW/VRW và Bias Instability cho cả 3 trục X, Y, Z của gia tốc kế và con quay hồi chuyển.
+
+Xuất file cấu hình tự động: Sinh ra file imu.yaml chứa đầy đủ các trường dữ liệu tiêu chuẩn dùng thẳng cho Kalibr, VINS-Mono, VINS-Fusion và ROVIO mà không cần chỉnh sửa thủ công.
+
+Bản ROS 2 (ripl-lab/allan_variance_ros2): Cung cấp sự tương thích hoàn hảo cho các hệ thống robot thế hệ mới chạy ROS 2 Humble và Jazzy, đọc trực tiếp định dạng rosbag2 mcap và sqlite3.
+
+`rpng/kalibr_allan` (MATLAB) và `GAVLab/allan_variance` (Python)
+
+rpng/kalibr_allan: Bản script MATLAB được phát triển bởi Robot Perception and Navigation Group (RPNG) thuộc Đại học Delaware. Đây là bản tham chiếu học thuật được tin cậy tuyệt đối nhờ các biểu đồ trực quan hóa chi tiết từng thành phần sai số. Rất nhiều tài liệu của ETH Zurich và HKUST khuyến nghị sử dụng kalibr_allan để thẩm định chéo kết quả.
+
+GAVLab/allan_variance: Package nhẹ viết bằng Python và ROS của Auburn University, sử dụng thư viện toán học mã nguồn mở allantools. Thích hợp cho các kỹ sư muốn nhanh chóng nhúng vào môi trường Jupyter Notebook để phân tích dữ liệu mà không cần cài đặt MATLAB hay build mã nguồn C++.
+
+Quy trình thực nghiệm đo tĩnh ≥ 3 giờ và cách nạp tham số vào EKF/ESKF/SLAM
+
+Để thu được kết quả phương sai Allan có ý nghĩa thống kê, quy trình thực nghiệm bắt buộc phải tuân thủ nghiêm ngặt các bước sau:
+
+Bước 1 — Điều kiện môi trường: Đặt IMU cố định tuyệt đối trên một khối bê tông hoặc bàn chống rung cơ học nặng. Đặt trong phòng kín gió, không có người qua lại, nhiệt độ điều hoà giữ ổn định (tránh ánh nắng chiếu trực tiếp hoặc gần nguồn nhiệt máy tính).
+
+Bước 2 — Gia nhiệt cân bằng (Warm-up): Bật nguồn IMU tối thiểu 30–45 phút trước khi ghi dữ liệu để các linh kiện bán dẫn đạt trạng thái cân bằng nhiệt độ hoạt động (Thermal Equilibrium).
+
+Bước 3 — Ghi nhận dữ liệu liên tục: Thu thập dữ liệu topic /imu/data_raw ở tần số hoạt động thực tế (khuyến nghị 200 Hz – 400 Hz) trong thời gian liên tục từ 3 đến 6 giờ (với cảm biến cấp công nghiệp, đo 12–24 giờ sẽ cho đường cong Bias Instability rõ ràng nhất).
+
+Bước 4 — Xử lý và trích xuất tham số: Chạy allan_variance_ros để tạo đồ thị và thu được 4 giá trị cốt lõi:
+
+
+--- TABLE START ---
+# Kết quả trích xuất từ đồ thị Allan Variance (Ví dụ IMU BMI088): gyro_noise_density:     0.00014    # rad / s / sqrt(Hz)  (Angle Random Walk - N_g) gyro_random_walk:       0.000015   # rad / s^2 / sqrt(Hz)(Rate Random Walk - K_g) accel_noise_density:    0.0019     # m / s^2 / sqrt(Hz)  (Velocity Random Walk - N_a) accel_random_walk:      0.00012    # m / s^3 / sqrt(Hz)  (Accel Random Walk - K_a)
+--- TABLE END ---
+
+Bước 5 — Quy tắc thực chiến nạp tham số vào Filter (VINS / FAST-LIO / robot_localization): Trong điều kiện làm việc thực tế trên xe tự hành, do rung động của động cơ, quạt tản nhiệt và mặt đường, nhiễu thực tế luôn lớn hơn trong phòng lab. Kinh nghiệm thực chiến khuyến nghị: Luôn nhân các giá trị noise_density từ Allan Variance lên 1.5 đến 2.0 lần khi nạp vào file cấu hình của VINS-Mono hoặc FAST-LIO2 để thuật toán không bị quá tự tin (overconfident), giúp bộ lọc có biên dự phòng sai số và hội tụ bền vững hơn.
+

@@ -659,6 +659,9 @@ class Stm32Simulator(Node):
         self.command = tuple(float(value) for value in values)
         self.command_time = self.get_clock().now()
 
+    def _on_estop(self, message):
+        self.estop_active = bool(message.data)
+
     def _on_calib_command(self, message):
         try:
             payload = json.loads(message.data)

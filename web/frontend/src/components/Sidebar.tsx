@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { LayoutDashboard, Sliders, Activity } from "lucide-react";
+import { LayoutDashboard, Sliders, Activity, Compass } from "lucide-react";
 
-export type NavTab = "cockpit" | "config" | "debug";
+export type NavTab = "cockpit" | "calib" | "config" | "debug";
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -17,6 +17,12 @@ export function Sidebar({ activeTab, onSelectTab }: SidebarProps) {
       label: "Control Cockpit",
       sublabel: "Map & Telemetry",
       icon: LayoutDashboard,
+    },
+    {
+      id: "calib" as NavTab,
+      label: "Calibration",
+      sublabel: "IMU & Kinematics",
+      icon: Compass,
     },
     {
       id: "config" as NavTab,

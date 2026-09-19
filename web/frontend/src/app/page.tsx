@@ -6,6 +6,7 @@ import { Header } from "@/components/Header";
 import { Sidebar, NavTab } from "@/components/Sidebar";
 import { MotionStatusCard } from "@/components/MotionStatusCard";
 import { ConfigPanel } from "@/components/ConfigPanel";
+import { CalibrationPanel } from "@/components/CalibrationPanel";
 import { CameraFeed } from "@/components/CameraFeed";
 import { MapNavigation } from "@/components/MapNavigation";
 import { SensorCards } from "@/components/SensorCards";
@@ -209,7 +210,14 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Tab 2: Cấu Hình Tham Số (Settings) */}
+          {/* Tab 2: Hiệu Chuẩn Cảm Biến & Động Học (Calibration) */}
+          {activeTab === "calib" && (
+            <div className="max-w-5xl mx-auto py-2">
+              <CalibrationPanel />
+            </div>
+          )}
+
+          {/* Tab 3: Cấu Hình Tham Số (Settings) */}
           {activeTab === "config" && (
             <div className="max-w-4xl mx-auto py-2">
               <ConfigPanel />

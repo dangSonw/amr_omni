@@ -7,8 +7,8 @@ interface AngularVelocityChartProps {
 
 export function AngularVelocityChart({ data }: AngularVelocityChartProps) {
   return (
-    <div className="bg-white p-4 rounded border border-slate-200">
-      <h2 className="text-lg font-bold mb-4">Angular Velocity (rad/s)</h2>
+    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      <h2 className="text-sm font-bold text-slate-900 mb-3">Vận Tốc Góc Angular Velocity (rad/s)</h2>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>

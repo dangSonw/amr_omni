@@ -163,5 +163,59 @@ class TestSerialProtocol(unittest.TestCase):
         self.assertEqual(consumed, 0)
 
 
+class TestCalibrationFeatures(unittest.TestCase):
+    def test_calibration_bypass_toggle(self):
+        calib = ImuCalibrator()
+        calib.gyro_bias = [0.05, -0.05, 0.05]
+        calib.accel_scale = [1.1, 0.9, 1.05]
+        calib.accel_bias = [0.2, -0.3, 0.4]
+        calib.gyro_calibrated = True
+        calib.accel_calibrated = True
+
+        raw_a = [0.0, 0.0, 9.80665]
+        raw_w = [0.05, -0.05, 0.05]
+
+        # Enabled: bias is cancelled
+        calib.calibration_enabled = True
+        ca, cw = calib.apply(raw_a, raw_w)
+        self.assertAlmostEqual(cw[0], 0.0)
+        self.assertAlmostEqual(cw[1], 0.0)
+        self.assertAlmostEqual(cw[2], 0.0)
+
+        # Bypassed: raw data passes through untouched
+        calib.calibration_enabled = False
+        ca_raw, cw_raw = calib.apply(raw_a, raw_w)
+        self.assertEqual(ca_raw, raw_a)
+        self.assertEqual(cw_raw, raw_w)
+
+    def test_six_face_detection(self):
+        g = STANDARD_GRAVITY_MPS2
+        faces = [
+            (ImuCalibrator.FACE_POS_Z, [0.0, 0.0, g]),
+            (ImuCalibrator.FACE_NEG_Z, [0.0, 0.0, -g]),
+            (ImuCalibrator.FACE_POS_X, [g, 0.0, 0.0]),
+            (ImuCalibrator.FACE_NEG_X, [-g, 0.0, 0.0]),
+            (ImuCalibrator.FACE_POS_Y, [0.0, g, 0.0]),
+            (ImuCalibrator.FACE_NEG_Y, [0.0, -g, 0.0]),
+        ]
+        for expected_face, nominal in faces:
+            detected, is_stat = ImuCalibrator.detect_current_face(nominal)
+            self.assertEqual(detected, expected_face)
+            self.assertTrue(is_stat)
+
+    def test_sensor_noise_model(self):
+        from omni_simulation.stm32_simulator import SensorNoiseModel
+        noise = SensorNoiseModel("clean")
+        ca, cw = noise.corrupt_imu([0.0, 0.0, 9.80665], [0.0, 0.0, 0.0])
+        self.assertEqual(ca, [0.0, 0.0, 9.80665])
+        self.assertEqual(cw, [0.0, 0.0, 0.0])
+
+        noise.set_profile("realistic")
+        ca2, cw2 = noise.corrupt_imu([0.0, 0.0, 9.80665], [0.0, 0.0, 0.0])
+        # Realistic profile has non-zero gyro bias
+        self.assertNotEqual(cw2, [0.0, 0.0, 0.0])
+        self.assertNotEqual(ca2, [0.0, 0.0, 9.80665])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -182,13 +182,13 @@ export default function DashboardPage() {
         <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
 
         {/* Center Content Workspace */}
-        <main className="flex-1 p-3 sm:p-5 overflow-y-auto">
+        <main className="flex-1 p-3 sm:p-5 overflow-y-auto w-full">
           {/* Tab 1: Trạm Điều Khiển Trung Tâm (Cockpit) */}
           {activeTab === "cockpit" && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-[1600px] mx-auto">
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 w-full">
               {/* Cột Trái (Bản Đồ 2D) */}
-              <div className="lg:col-span-7 flex flex-col gap-4">
-                <div className="min-h-[520px] flex-1">
+              <div className="xl:col-span-7 2xl:col-span-8 flex flex-col gap-4">
+                <div className="min-h-[580px] flex-1">
                   <MapNavigation
                     odom={telemetry?.odom}
                     lidar={telemetry?.lidar}
@@ -198,9 +198,9 @@ export default function DashboardPage() {
               </div>
 
               {/* Cột Phải (Camera Live Feed & Thẻ Động Học) */}
-              <div className="lg:col-span-5 flex flex-col gap-4">
+              <div className="xl:col-span-5 2xl:col-span-4 flex flex-col gap-4">
                 {/* Camera Live Feed */}
-                <div className="h-[300px]">
+                <div className="h-[320px]">
                   <CameraFeed />
                 </div>
 
@@ -212,27 +212,27 @@ export default function DashboardPage() {
 
           {/* Tab 2: Hiệu Chuẩn Cảm Biến & Động Học (Calibration) */}
           {activeTab === "calib" && (
-            <div className="max-w-5xl mx-auto py-2">
+            <div className="w-full">
               <CalibrationPanel />
             </div>
           )}
 
           {/* Tab 3: Cấu Hình Tham Số (Settings) */}
           {activeTab === "config" && (
-            <div className="max-w-4xl mx-auto py-2">
+            <div className="w-full">
               <ConfigPanel />
             </div>
           )}
 
           {activeTab === "debug" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-w-[1600px] mx-auto">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 w-full">
               <MotorSpeedChart data={debugHistory} debug={telemetry?.debug} />
               <ImuQuaternionDisplay imu={telemetry?.imu} debug={telemetry?.debug} data={debugHistory} />
               <AngularVelocityChart data={debugHistory} />
               <LinearVelocityChart data={debugHistory} />
               <SensorCards imu={telemetry?.imu} odom={telemetry?.odom} onResetOdom={resetOdom} />
               <WheelDiagnostics wheels={telemetry?.wheels} />
-              <div className="col-span-1 lg:col-span-2">
+              <div className="col-span-full">
                 <StreamMatrix streams={telemetry?.streams} />
               </div>
             </div>

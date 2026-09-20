@@ -376,3 +376,191 @@ class GridMapPlanner:
         )
         return dense_result
 
+
+class OmniMpcController:
+    """Holonomic Model Predictive Controller (Omni MPC) for Mecanum Robot.
+
+    Predicts state rollouts over horizon N using the kinematics:
+        x_{k+1} = x_k + (vx * cos(th) - vy * sin(th)) * dt
+        y_{k+1} = y_k + (vx * sin(th) + vy * cos(th)) * dt
+        th_{k+1} = th_k + wz * dt
+
+    Optimizes trajectory cost:
+        - Reference path tracking error
+        - Heading alignment
+        - Obstacle repulsion penalty from 2D LiDAR points
+        - Control effort & acceleration smoothness penalty
+        - S-curve terminal deceleration in deadband
+    """
+
+    def __init__(
+        self,
+        horizon_steps: int = 10,
+        dt: float = 0.08,
+        max_vx: float = 0.40,
+        max_vy: float = 0.35,
+        max_wz: float = 2.0,
+        robot_radius: float = 0.22,
+    ):
+        self.N = horizon_steps
+        self.dt = dt
+        self.max_vx = max_vx
+        self.max_vy = max_vy
+        self.max_wz = max_wz
+        self.robot_radius = robot_radius
+        self.last_cmd = [0.0, 0.0, 0.0]
+
+    def reset(self):
+        self.last_cmd = [0.0, 0.0, 0.0]
+
+    def compute(
+        self,
+        current_x: float,
+        current_y: float,
+        current_theta: float,
+        target_path: List[List[float]],
+        goal_x: float,
+        goal_y: float,
+        lidar_points: Optional[List[List[float]]] = None,
+    ) -> Tuple[float, float, float, float, List[List[float]]]:
+        """Compute optimal (vx, vy, wz), distance to goal, and predicted trajectory points."""
+        dist_to_final = math.hypot(goal_x - current_x, goal_y - current_y)
+
+        # 1. Terminal Arrival Deadband (< 0.18m)
+        if dist_to_final < 0.18:
+            dx = goal_x - current_x
+            dy = goal_y - current_y
+            cos_th = math.cos(current_theta)
+            sin_th = math.sin(current_theta)
+            rx = cos_th * dx + sin_th * dy
+            ry = -sin_th * dx + cos_th * dy
+            r_norm = math.hypot(rx, ry)
+
+            if dist_to_final < 0.04 or r_norm < 1e-3:
+                self.last_cmd = [0.0, 0.0, 0.0]
+                return 0.0, 0.0, 0.0, dist_to_final, [[round(current_x, 3), round(current_y, 3)]]
+
+            crawl_speed = max(0.02, min(0.12, dist_to_final * 0.6))
+            vr_x = crawl_speed * (rx / r_norm)
+            vr_y = crawl_speed * (ry / r_norm) * 0.5
+            wz = 0.0  # Zero angular velocity in terminal deadband
+            self.last_cmd = [vr_x, vr_y, wz]
+            pred_path = [
+                [round(current_x, 3), round(current_y, 3)],
+                [round(goal_x, 3), round(goal_y, 3)],
+            ]
+            return vr_x, vr_y, wz, dist_to_final, pred_path
+
+        # 2. Extract local lookahead reference segment from target_path
+        if not target_path:
+            target_path = [[current_x, current_y], [goal_x, goal_y]]
+
+        # Find closest waypoint index
+        closest_idx = 0
+        min_d = float("inf")
+        for i, pt in enumerate(target_path):
+            d = math.hypot(pt[0] - current_x, pt[1] - current_y)
+            if d < min_d:
+                min_d = d
+                closest_idx = i
+
+        # Lookahead reference point (e.g. 0.4 - 0.7m ahead)
+        lookahead_idx = min(len(target_path) - 1, closest_idx + 2)
+        ref_pt = target_path[lookahead_idx]
+        ref_dx = ref_pt[0] - current_x
+        ref_dy = ref_pt[1] - current_y
+        ref_dist = math.hypot(ref_dx, ref_dy)
+        nominal_heading = math.atan2(ref_dy, ref_dx) if ref_dist > 1e-3 else current_theta
+
+        # 3. Dynamic candidate velocity samples
+        base_speed = min(self.max_vx, max(0.08, dist_to_final * 0.6))
+        cos_th = math.cos(current_theta)
+        sin_th = math.sin(current_theta)
+
+        target_rx = cos_th * ref_dx + sin_th * ref_dy
+        target_ry = -sin_th * ref_dx + cos_th * ref_dy
+        target_norm = math.hypot(target_rx, target_ry)
+        if target_norm > 1e-4:
+            u_nom_x = base_speed * (target_rx / target_norm)
+            u_nom_y = base_speed * (target_ry / target_norm) * 0.3
+        else:
+            u_nom_x, u_nom_y = 0.0, 0.0
+
+        angle_err = math.atan2(math.sin(nominal_heading - current_theta), math.cos(nominal_heading - current_theta))
+        wz_nom = float(max(-self.max_wz, min(self.max_wz, 1.8 * angle_err)))
+
+        # Candidate control actions
+        vx_samples = [u_nom_x * 0.6, u_nom_x, min(self.max_vx, u_nom_x * 1.2)]
+        vy_samples = [u_nom_y - 0.05, u_nom_y, u_nom_y + 0.05]
+        wz_samples = [wz_nom - 0.3, wz_nom, wz_nom + 0.3]
+
+        best_cost = float("inf")
+        best_cmd = (u_nom_x, u_nom_y, wz_nom)
+        best_trajectory = []
+
+        # Near obstacles (within 1.0m of robot in robot frame)
+        near_obstacles = []
+        if lidar_points:
+            for pt in lidar_points:
+                px, py = pt[0], pt[1]
+                if 0.05 < math.hypot(px, py) < 1.0:
+                    wx = current_x + cos_th * px - sin_th * py
+                    wy = current_y + sin_th * px + cos_th * py
+                    near_obstacles.append((wx, wy))
+
+        # 4. Evaluate MPC Trajectory Rollouts
+        for vx_c in vx_samples:
+            for vy_c in vy_samples:
+                for wz_c in wz_samples:
+                    cost = 0.0
+                    rollout_pts = []
+                    sim_x, sim_y, sim_th = current_x, current_y, current_theta
+                    collision = False
+
+                    for step in range(1, self.N + 1):
+                        c_th = math.cos(sim_th)
+                        s_th = math.sin(sim_th)
+                        sim_x += (vx_c * c_th - vy_c * s_th) * self.dt
+                        sim_y += (vx_c * s_th + vy_c * c_th) * self.dt
+                        sim_th += wz_c * self.dt
+                        rollout_pts.append([round(sim_x, 3), round(sim_y, 3)])
+
+                        # Path tracking error: distance to reference point
+                        cost += 3.0 * ((sim_x - ref_pt[0]) ** 2 + (sim_y - ref_pt[1]) ** 2)
+
+                        # Obstacle distance penalty
+                        for ox, oy in near_obstacles:
+                            obs_dist = math.hypot(sim_x - ox, sim_y - oy)
+                            if obs_dist < self.robot_radius:
+                                collision = True
+                                cost += 1000.0
+                                break
+                            elif obs_dist < self.robot_radius + 0.25:
+                                cost += 15.0 / max(0.01, (obs_dist - self.robot_radius) ** 2)
+
+                        if collision:
+                            break
+
+                    # Heading alignment cost
+                    cost += 1.5 * (1.0 - math.cos(sim_th - nominal_heading))
+                    # Control rate smoothness penalty
+                    cost += 0.8 * ((vx_c - self.last_cmd[0]) ** 2 + (vy_c - self.last_cmd[1]) ** 2 + 0.3 * (wz_c - self.last_cmd[2]) ** 2)
+                    # Goal distance cost
+                    cost += 2.0 * ((sim_x - goal_x) ** 2 + (sim_y - goal_y) ** 2)
+
+                    if cost < best_cost:
+                        best_cost = cost
+                        best_cmd = (vx_c, vy_c, wz_c)
+                        best_trajectory = rollout_pts
+
+        opt_vx, opt_vy, opt_wz = best_cmd
+        self.last_cmd = [opt_vx, opt_vy, opt_wz]
+
+        # S-curve speed limit when close to goal
+        if dist_to_final < 0.4:
+            scale = max(0.15, dist_to_final / 0.4)
+            opt_vx *= scale
+            opt_vy *= scale
+
+        return opt_vx, opt_vy, opt_wz, dist_to_final, best_trajectory
+

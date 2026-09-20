@@ -182,3 +182,187 @@ def test_map_clear_and_grid_planner():
         assert not (abs(pt[0] - 1.0) < 0.15 and abs(pt[1]) < 0.2), f"Điểm {pt} lọt vào giữa tường!"
 
 
+def test_calib_toggle_reset_noise_endpoints():
+    # Test toggle
+    res_toggle = client.post("/api/calib/toggle", json={"enabled": False})
+    assert res_toggle.status_code == 200
+    assert res_toggle.json()["calibration_enabled"] is False
+
+    res_toggle_back = client.post("/api/calib/toggle", json={"enabled": True})
+    assert res_toggle_back.status_code == 200
+    assert res_toggle_back.json()["calibration_enabled"] is True
+
+    # Test noise profile
+    res_noise = client.post("/api/calib/noise", json={"profile": "harsh"})
+    assert res_noise.status_code == 200
+    assert res_noise.json()["noise_profile"] == "harsh"
+
+    # Test reset
+    res_reset = client.post("/api/calib/reset")
+    assert res_reset.status_code == 200
+    assert res_reset.json()["status"] == "ok"
+    state = res_reset.json()["state"]
+    assert state["is_calibrated"] is False
+    assert state["results"]["gyro_bias"] == [0.0, 0.0, 0.0]
+    assert state["live_metrics"]["reduction_gyro_percent"] == 0.0
+
+
+def test_calibration_sampling_and_an4508_faces():
+    # 1. Start calibration with 50 samples
+    res_start = client.post("/api/calib/start", json={"routine": "imu", "sample_count": 50})
+    assert res_start.status_code == 200
+    assert res_start.json()["status"] == "ok"
+    assert res_start.json()["state"]["target_samples"] == 50
+    assert res_start.json()["state"]["active"] is True
+
+    # 2. Step calibration
+    res_step = client.post("/api/calib/step")
+    assert res_step.status_code == 200
+    assert res_step.json()["state"]["progress_percent"] > 0
+
+    # 3. Test AN4508 face sampling
+    res_face = client.post("/api/calib/face/sample", json={"face": 4, "sample_count": 50})
+    assert res_face.status_code == 200
+    assert res_face.json()["face"] == 4
+    assert res_face.json()["state"]["face_completed"][4] is True
+
+    # 4. Abort calibration
+    res_abort = client.post("/api/calib/abort")
+    assert res_abort.status_code == 200
+    assert res_abort.json()["state"]["active"] is False
+
+
+def test_omni_mpc_controller():
+    from app.services.grid_planner import OmniMpcController
+    mpc = OmniMpcController()
+    
+    # Test tracking towards a straight path
+    path = [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]
+    vx, vy, wz, dist, rollout = mpc.compute(0.0, 0.0, 0.0, path, 2.0, 0.0, [])
+    assert vx > 0.05, "MPC should generate forward velocity along path"
+    assert dist == 2.0
+    assert len(rollout) > 0
+
+    # Test terminal deadband arrival (< 0.18m)
+    vx_arr, vy_arr, wz_arr, dist_arr, rollout_arr = mpc.compute(1.90, 0.0, 0.0, path, 2.0, 0.0, [])
+    assert wz_arr == 0.0, "Angular velocity wz must be zero in terminal deadband to prevent oscillation"
+    assert vx_arr > 0.0, "Robot should slowly crawl into final position"
+
+
+def test_arbitrary_pose_calibration():
+    # 1. Clear poses
+    res_clear = client.post("/api/calib/pose/clear")
+    assert res_clear.status_code == 200
+    assert res_clear.json()["pose_count"] == 0
+
+    # 2. Record 6 arbitrary poses
+    test_poses = [
+        {"accel": [0.0, 0.0, 9.80665], "roll": 0.0, "pitch": 0.0, "yaw": 0.0},
+        {"accel": [0.0, 0.0, -9.80665], "roll": 180.0, "pitch": 0.0, "yaw": 0.0},
+        {"accel": [9.80665, 0.0, 0.0], "roll": 0.0, "pitch": -90.0, "yaw": 0.0},
+        {"accel": [-9.80665, 0.0, 0.0], "roll": 0.0, "pitch": 90.0, "yaw": 0.0},
+        {"accel": [0.0, 9.80665, 0.0], "roll": 90.0, "pitch": 0.0, "yaw": 0.0},
+        {"accel": [0.0, -9.80665, 0.0], "roll": -90.0, "pitch": 0.0, "yaw": 0.0},
+    ]
+    for p in test_poses:
+        res = client.post("/api/calib/pose/record", json=p)
+        assert res.status_code == 200
+
+    # 3. Compute calibration
+    res_compute = client.post("/api/calib/pose/compute")
+    assert res_compute.status_code == 200
+    data = res_compute.json()
+    assert data["status"] == "ok"
+    assert len(data["accel_scale"]) == 3
+    assert len(data["accel_bias"]) == 3
+    assert data["max_norm_error"] < 0.5
+
+
+
+def test_encoder_and_extrinsics_calibration():
+    # 1. Encoder calibration test
+    res_enc = client.post("/api/calib/encoder/start", json={
+        "true_distance_m": 1.0,
+        "wheel_travel_m": [1.02, 0.99, 1.01, 0.98]
+    })
+    assert res_enc.status_code == 200
+    enc_data = res_enc.json()
+    assert enc_data["status"] == "ok"
+    assert len(enc_data["wheel_radii"]) == 4
+    for r in enc_data["wheel_radii"]:
+        assert 0.025 <= r <= 0.035
+
+    # 2. Extrinsics calibration test with temporal latency
+    res_ext = client.post("/api/calib/extrinsics/start", json={
+        "w1_rad_s": 1.0,
+        "w2_rad_s": 2.0,
+        "ax_1": -0.05,
+        "ay_1": 0.0,
+        "ax_2": -0.20,
+        "ay_2": 0.0,
+        "time_delay_ms": 15.0,
+    })
+    assert res_ext.status_code == 200
+    ext_data = res_ext.json()
+    assert ext_data["status"] == "ok"
+    assert len(ext_data["lever_arm"]) == 3
+    assert abs(ext_data["lever_arm"][0] - 0.05) < 0.01
+    assert ext_data["time_delay_ms"] == 15.0
+
+
+def test_st_an4508_full_6_steps_calibration():
+    # Reset first
+    client.post("/api/calib/reset")
+
+    # Step through all 6 AN4508 orientations (0 to 5)
+    for s in range(6):
+        res = client.post("/api/calib/face/sample", json={"step": s, "sample_count": 50})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["completed"] is True
+
+    # Check that after step 5, all 6 faces are completed and calibration succeeded
+    res_status = client.get("/api/calib/status")
+    assert res_status.status_code == 200
+    status = res_status.json()
+    assert status["is_calibrated"] is True
+    assert all(status["face_completed"])
+
+    # Verify physical sanity bounds
+    scales = status["results"]["accel_scale"]
+    biases = status["results"]["accel_bias"]
+    for s in scales:
+        assert 0.85 <= s <= 1.15, f"Scale {s} must be within physical sanity [0.85, 1.15]"
+    for b in biases:
+        assert abs(b) <= 2.0, f"Bias {b} must be within physical bounds [-2.0, 2.0]"
+
+    # Verify that calibrated gravity is physically ~9.8 m/s^2, never 20 m/s^2!
+    calib_az = (9.80665 - biases[2]) / scales[2]
+    assert 9.0 <= calib_az <= 10.5, f"Calibrated az is {calib_az}, must be ~9.8 m/s^2 and never 20 m/s^2!"
+
+
+def test_sim_set_pose_and_tilt_compensation():
+    # 1. Test set_sim_pose endpoint
+    res_pose = client.post("/api/calib/sim/set_pose", json={
+        "roll_deg": 180.0,
+        "pitch_deg": 0.0,
+        "yaw_deg": 0.0,
+        "step": 1,
+    })
+    assert res_pose.status_code == 200
+    data = res_pose.json()
+    assert data["status"] == "ok"
+    assert data["angles"]["roll"] == 180.0
+
+    # 2. Check calib status has sim_angles
+    res_status = client.get("/api/calib/status")
+    assert res_status.status_code == 200
+    status = res_status.json()
+    assert status["sim_angles"] == [180.0, 0.0, 0.0]
+    assert len(status["face_cos_deltas"]) == 6
+
+
+
+
+
+

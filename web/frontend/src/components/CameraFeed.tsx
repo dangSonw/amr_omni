@@ -19,7 +19,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = () => {
   const streamSrc = `/api/camera/stream?type=${cameraType}&t=${reloadKey}`;
 
   return (
-    <div className="bg-white border border-slate-200 rounded p-3 sm:p-4 flex flex-col h-full text-slate-800 overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 sm:p-4 flex flex-col h-full text-slate-800 overflow-hidden">
       <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 mb-2.5">
         <div className="flex items-center gap-2">
           <Camera className={`w-4 h-4 ${cameraType === "rgb" ? "text-emerald-600" : "text-cyan-600"}`} />

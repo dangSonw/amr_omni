@@ -67,6 +67,23 @@ class DebugTelemetry(BaseModel):
     cmd_vx_mps: float = 0.0
     cmd_vy_mps: float = 0.0
     cmd_wz_rad_s: float = 0.0
+    calibration_enabled: Optional[bool] = True
+    noise_profile: Optional[str] = "realistic"
+    detected_face: Optional[int] = 4
+    is_stationary: Optional[bool] = True
+    raw_gyro_stddev: Optional[float] = 0.0
+    raw_accel_stddev: Optional[float] = 0.0
+    gyro_bias: Optional[List[float]] = None
+    accel_scale: Optional[List[float]] = None
+    accel_bias: Optional[List[float]] = None
+    imu_integrated_yaw_deg: Optional[float] = 0.0
+    arbitrary_pose_count: Optional[int] = 0
+    wheel_radii: Optional[List[float]] = None
+    lever_arm: Optional[List[float]] = None
+    time_delay_ms: Optional[float] = 12.5
+    encoder_calibrated: Optional[bool] = False
+    extrinsics_calibrated: Optional[bool] = False
+    sim_orientation: Optional[List[float]] = None
 
 
 class LidarTelemetry(BaseModel):
@@ -120,6 +137,10 @@ class RobotConfig(BaseModel):
     motor_ki: float = 0.25
     motor_kd: float = 0.0005
     debug_telemetry: bool = True
+    noise_profile: str = "realistic"
+    motor_jitter_ticks: int = 1
+    encoder_slip_prob: float = 0.005
+    time_delay_ms: float = 12.5
 
 
 class NavGoalRequest(BaseModel):

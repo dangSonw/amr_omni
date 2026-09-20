@@ -48,14 +48,14 @@ export function Sidebar({ activeTab, onSelectTab }: SidebarProps) {
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-sm text-left transition-all duration-150 ${
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left transition-all duration-150 ${
                 isActive
-                  ? "bg-brand-600 text-white font-semibold"
+                  ? "bg-blue-600 text-white font-semibold shadow-sm"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium"
               }`}
             >
               <div
-                className={`flex h-9 w-9 items-center justify-center rounded-sm ${
+                className={`flex h-9 w-9 items-center justify-center rounded-lg ${
                   isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
                 }`}
               >

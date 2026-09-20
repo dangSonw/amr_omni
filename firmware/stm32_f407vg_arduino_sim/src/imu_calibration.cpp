@@ -32,10 +32,27 @@ void ImuCalibrator::reset() {
     params_.covariance_inflation = kDefaultInflationAlpha;
     params_.gyro_calibrated = false;
     params_.accel_calibrated = false;
+    params_.calibration_enabled = true;
 
     memset(accel_face_sum_, 0, sizeof(accel_face_sum_));
     memset(accel_face_count_, 0, sizeof(accel_face_count_));
     memset(face_completed_, 0, sizeof(face_completed_));
+
+    arbitrary_pose_count_ = 0U;
+    memset(arbitrary_poses_, 0, sizeof(arbitrary_poses_));
+
+    for (uint8_t i = 0U; i < 4U; ++i) {
+        encoder_params_.wheel_radii[i] = 0.03F;
+    }
+    encoder_params_.wheelbase_m = 0.1312F;
+    encoder_params_.track_width_m = 0.1312F;
+    encoder_params_.encoder_calibrated = false;
+
+    extrinsics_params_.lever_arm[0] = 0.05F; // default nominal forward offset
+    extrinsics_params_.lever_arm[1] = 0.0F;
+    extrinsics_params_.lever_arm[2] = 0.08F;
+    extrinsics_params_.time_delay_sec = 0.005F;
+    extrinsics_params_.extrinsics_calibrated = false;
 }
 
 void ImuCalibrator::set_params(const ImuCalibrationParams &params) {
@@ -235,16 +252,24 @@ void ImuCalibrator::apply(const ImuSample &raw, ImuSample &calibrated) const {
 
 void ImuCalibrator::apply(const float raw_accel[3], const float raw_gyro[3],
                           float calib_accel[3], float calib_gyro[3]) const {
+    if (!params_.calibration_enabled) {
+        for (uint8_t i = 0U; i < 3U; ++i) {
+            calib_accel[i] = raw_accel[i];
+            calib_gyro[i] = raw_gyro[i];
+        }
+        return;
+    }
+
     for (uint8_t i = 0U; i < 3U; ++i) {
-        // Accelerometer calibration: (a_raw - bias) / scale
-        if (params_.accel_calibrated && fabsf(params_.accel_scale[i]) > 1e-4F) {
+        // Accelerometer calibration: (a_raw - bias) / scale with physical sanity checks
+        if (params_.accel_calibrated && fabsf(params_.accel_scale[i]) >= 0.85F && fabsf(params_.accel_scale[i]) <= 1.15F && fabsf(params_.accel_bias[i]) <= 2.0F) {
             calib_accel[i] = (raw_accel[i] - params_.accel_bias[i]) / params_.accel_scale[i];
         } else {
             calib_accel[i] = raw_accel[i];
         }
 
         // Gyroscope calibration: w_raw - bias
-        if (params_.gyro_calibrated) {
+        if (params_.gyro_calibrated && fabsf(params_.gyro_bias[i]) <= 0.5F) {
             calib_gyro[i] = raw_gyro[i] - params_.gyro_bias[i];
         } else {
             calib_gyro[i] = raw_gyro[i];
@@ -294,4 +319,170 @@ ImuCalibProgress ImuCalibrator::get_progress() const {
     }
     progress.live_metric = 0.0F;
     return progress;
+}
+
+bool ImuCalibrator::add_arbitrary_pose(const float accel_mean[3]) {
+    if (arbitrary_pose_count_ >= kMaxArbitraryPoses) {
+        return false;
+    }
+    for (uint8_t i = 0U; i < 3U; ++i) {
+        if (!is_valid_float(accel_mean[i])) {
+            return false;
+        }
+        arbitrary_poses_[arbitrary_pose_count_].accel_mean[i] = accel_mean[i];
+    }
+    arbitrary_pose_count_++;
+    return true;
+}
+
+bool ImuCalibrator::compute_multi_pose_calibration(float &max_norm_error) {
+    if (arbitrary_pose_count_ < 4U) {
+        state_ = CALIB_FAILED_MATH;
+        max_norm_error = 999.0F;
+        return false;
+    }
+
+    state_ = CALIB_COMPUTING;
+
+    // Gauss-Newton fitting for 3D Ellipsoid: ((x-bx)/sx)^2 + ((y-by)/sy)^2 + ((z-bz)/sz)^2 = g^2
+    float sx = 1.0F, sy = 1.0F, sz = 1.0F;
+    float bx = 0.0F, by = 0.0F, bz = 0.0F;
+
+    // Initial estimate of bias from min/max bounds across arbitrary poses
+    float min_a[3] = {999.0F, 999.0F, 999.0F};
+    float max_a[3] = {-999.0F, -999.0F, -999.0F};
+    for (uint8_t p = 0U; p < arbitrary_pose_count_; ++p) {
+        for (uint8_t i = 0U; i < 3U; ++i) {
+            float v = arbitrary_poses_[p].accel_mean[i];
+            if (v < min_a[i]) min_a[i] = v;
+            if (v > max_a[i]) max_a[i] = v;
+        }
+    }
+
+    for (uint8_t i = 0U; i < 3U; ++i) {
+        if (max_a[i] > min_a[i] + 1.0F) {
+            float span = max_a[i] - min_a[i];
+            float scale_est = span / (2.0F * kStandardGravityMps2);
+            if (scale_est > 0.7F && scale_est < 1.3F) {
+                if (i == 0U) sx = scale_est;
+                else if (i == 1U) sy = scale_est;
+                else sz = scale_est;
+            }
+            float bias_est = (max_a[i] + min_a[i]) * 0.5F;
+            if (fabsf(bias_est) < 4.0F) {
+                if (i == 0U) bx = bias_est;
+                else if (i == 1U) by = bias_est;
+                else bz = bias_est;
+            }
+        }
+    }
+
+    // Iterative refinement (10 iterations of gradient descent / Gauss-Newton step)
+    const float learning_rate = 0.005F;
+    for (uint8_t iter = 0U; iter < 20U; ++iter) {
+        float grad_bx = 0.0F, grad_by = 0.0F, grad_bz = 0.0F;
+        float grad_sx = 0.0F, grad_sy = 0.0F, grad_sz = 0.0F;
+
+        for (uint8_t p = 0U; p < arbitrary_pose_count_; ++p) {
+            const float ax = arbitrary_poses_[p].accel_mean[0];
+            const float ay = arbitrary_poses_[p].accel_mean[1];
+            const float az = arbitrary_poses_[p].accel_mean[2];
+
+            const float cal_x = (ax - bx) / sx;
+            const float cal_y = (ay - by) / sy;
+            const float cal_z = (az - bz) / sz;
+
+            const float norm = sqrtf(cal_x * cal_x + cal_y * cal_y + cal_z * cal_z);
+            const float err = norm - kStandardGravityMps2;
+
+            if (norm > 1.0e-3F) {
+                const float factor = err / norm;
+                grad_bx -= factor * (cal_x / sx);
+                grad_by -= factor * (cal_y / sy);
+                grad_bz -= factor * (cal_z / sz);
+
+                grad_sx -= factor * (cal_x * cal_x / sx);
+                grad_sy -= factor * (cal_y * cal_y / sy);
+                grad_sz -= factor * (cal_z * cal_z / sz);
+            }
+        }
+
+        bx += learning_rate * grad_bx;
+        by += learning_rate * grad_by;
+        bz += learning_rate * grad_bz;
+
+        sx += learning_rate * grad_sx;
+        sy += learning_rate * grad_sy;
+        sz += learning_rate * grad_sz;
+
+        // Bounded clamps
+        if (sx < 0.7F) sx = 0.7F; if (sx > 1.3F) sx = 1.3F;
+        if (sy < 0.7F) sy = 0.7F; if (sy > 1.3F) sy = 1.3F;
+        if (sz < 0.7F) sz = 0.7F; if (sz > 1.3F) sz = 1.3F;
+        if (bx < -4.0F) bx = -4.0F; if (bx > 4.0F) bx = 4.0F;
+        if (by < -4.0F) by = -4.0F; if (by > 4.0F) by = 4.0F;
+        if (bz < -4.0F) bz = -4.0F; if (bz > 4.0F) bz = 4.0F;
+    }
+
+    // Residual evaluation across all arbitrary poses
+    max_norm_error = 0.0F;
+    for (uint8_t p = 0U; p < arbitrary_pose_count_; ++p) {
+        const float ax = (arbitrary_poses_[p].accel_mean[0] - bx) / sx;
+        const float ay = (arbitrary_poses_[p].accel_mean[1] - by) / sy;
+        const float az = (arbitrary_poses_[p].accel_mean[2] - bz) / sz;
+        const float norm = sqrtf(ax * ax + ay * ay + az * az);
+        const float err = fabsf(norm - kStandardGravityMps2);
+        if (err > max_norm_error) {
+            max_norm_error = err;
+        }
+    }
+
+    params_.accel_scale[0] = sx;
+    params_.accel_scale[1] = sy;
+    params_.accel_scale[2] = sz;
+
+    params_.accel_bias[0] = bx;
+    params_.accel_bias[1] = by;
+    params_.accel_bias[2] = bz;
+
+    params_.accel_calibrated = true;
+    state_ = CALIB_SUCCESS;
+    return true;
+}
+
+void ImuCalibrator::calibrate_wheel_radii(float true_distance_m, const float wheel_travel_m[4]) {
+    if (true_distance_m <= 0.01F) return;
+
+    for (uint8_t i = 0U; i < 4U; ++i) {
+        if (wheel_travel_m[i] > 0.01F) {
+            float ratio = true_distance_m / wheel_travel_m[i];
+            float new_r = 0.03F * ratio;
+            // Physical sanity clamp for Mecanum wheel [2.5cm, 3.5cm]
+            if (new_r >= 0.025F && new_r <= 0.035F) {
+                encoder_params_.wheel_radii[i] = new_r;
+            }
+        }
+    }
+    encoder_params_.encoder_calibrated = true;
+}
+
+bool ImuCalibrator::compute_lever_arm(float w_sq_1, float ax_1, float ay_1,
+                                      float w_sq_2, float ax_2, float ay_2) {
+    float delta_w_sq = w_sq_2 - w_sq_1;
+    if (fabsf(delta_w_sq) < 0.05F) {
+        return false;
+    }
+
+    // Centripetal acceleration: a_centripetal = -w_z^2 * lever_arm
+    float lx = -(ax_2 - ax_1) / delta_w_sq;
+    float ly = -(ay_2 - ay_1) / delta_w_sq;
+
+    // Physical sanity clamp [-0.2m, +0.2m]
+    if (fabsf(lx) < 0.25F && fabsf(ly) < 0.25F) {
+        extrinsics_params_.lever_arm[0] = lx;
+        extrinsics_params_.lever_arm[1] = ly;
+        extrinsics_params_.extrinsics_calibrated = true;
+        return true;
+    }
+    return false;
 }

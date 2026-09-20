@@ -15,24 +15,24 @@ export function ImuQuaternionDisplay({ imu, debug, data }: ImuQuaternionDisplayP
   const qw = imu?.qw ?? debug?.imu_quaternion_xyzw?.[3] ?? 1;
 
   return (
-    <div className="bg-white p-4 rounded border border-slate-200">
-      <h2 className="text-lg font-bold mb-4">IMU Quaternion</h2>
+    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      <h2 className="text-sm font-bold text-slate-900 mb-3">IMU Quaternion (Orientation)</h2>
       <div className="grid grid-cols-4 gap-2 mb-4">
-        <div className="bg-slate-50 p-2 rounded border border-slate-200 text-center">
-          <div className="text-xs text-slate-500 font-bold">X</div>
-          <div className="font-mono text-sm">{qx.toFixed(4)}</div>
+        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-center">
+          <div className="text-[11px] text-slate-500 font-bold">QX</div>
+          <div className="font-mono text-xs font-semibold text-slate-900 mt-0.5">{qx.toFixed(4)}</div>
         </div>
-        <div className="bg-slate-50 p-2 rounded border border-slate-200 text-center">
-          <div className="text-xs text-slate-500 font-bold">Y</div>
-          <div className="font-mono text-sm">{qy.toFixed(4)}</div>
+        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-center">
+          <div className="text-[11px] text-slate-500 font-bold">QY</div>
+          <div className="font-mono text-xs font-semibold text-slate-900 mt-0.5">{qy.toFixed(4)}</div>
         </div>
-        <div className="bg-slate-50 p-2 rounded border border-slate-200 text-center">
-          <div className="text-xs text-slate-500 font-bold">Z</div>
-          <div className="font-mono text-sm">{qz.toFixed(4)}</div>
+        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-center">
+          <div className="text-[11px] text-slate-500 font-bold">QZ</div>
+          <div className="font-mono text-xs font-semibold text-slate-900 mt-0.5">{qz.toFixed(4)}</div>
         </div>
-        <div className="bg-slate-50 p-2 rounded border border-slate-200 text-center">
-          <div className="text-xs text-slate-500 font-bold">W</div>
-          <div className="font-mono text-sm">{qw.toFixed(4)}</div>
+        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-center">
+          <div className="text-[11px] text-slate-500 font-bold">QW</div>
+          <div className="font-mono text-xs font-semibold text-slate-900 mt-0.5">{qw.toFixed(4)}</div>
         </div>
       </div>
       <div className="h-48">

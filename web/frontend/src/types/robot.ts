@@ -83,12 +83,26 @@ export interface RobotConfig {
   motor_ki: number;
   motor_kd: number;
   debug_telemetry: boolean;
+  noise_profile?: string;
+  motor_jitter_ticks?: number;
+  encoder_slip_prob?: number;
+  time_delay_ms?: number;
 }
 
 export interface PathTelemetry {
   global_path: [number, number][];
   local_path: [number, number][];
   obstacles?: [number, number][];
+}
+
+export interface ArbitraryPose {
+  id: number;
+  accel: [number, number, number];
+  roll?: number;
+  pitch?: number;
+  yaw?: number;
+  norm: number;
+  timestamp?: number;
 }
 
 export interface DebugTelemetry {
@@ -103,6 +117,27 @@ export interface DebugTelemetry {
   cmd_vx_mps: number;
   cmd_vy_mps: number;
   cmd_wz_rad_s: number;
+  calibration_enabled?: boolean;
+  is_calibrated?: boolean;
+  calib_sample_count?: number;
+  calib_target_samples?: number;
+  calib_progress_percent?: number;
+  noise_profile?: string;
+  detected_face?: number;
+  is_stationary?: boolean;
+  raw_gyro_stddev?: number;
+  raw_accel_stddev?: number;
+  gyro_bias?: number[];
+  accel_scale?: number[];
+  accel_bias?: number[];
+  imu_integrated_yaw_deg?: number;
+  arbitrary_pose_count?: number;
+  wheel_radii?: number[];
+  lever_arm?: number[];
+  time_delay_ms?: number;
+  encoder_calibrated?: boolean;
+  extrinsics_calibrated?: boolean;
+  sim_orientation?: number[];
 }
 
 export interface FullTelemetryMessage {

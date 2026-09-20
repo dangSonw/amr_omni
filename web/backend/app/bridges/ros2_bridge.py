@@ -26,7 +26,7 @@ from app.models import (
     WheelTelemetry,
 )
 from app.services.stream_monitor import stream_monitor
-from app.services.grid_planner import GridMapPlanner
+from app.services.grid_planner import GridMapPlanner, OmniMpcController
 
 logger = logging.getLogger("amr_web.ros2_bridge")
 
@@ -138,6 +138,7 @@ class Ros2Bridge(BaseRobotBridge):
 
         # Dữ liệu Camera, Map và Path (Phase 5 & 6)
         self.grid_planner = GridMapPlanner()
+        self.mpc_controller = OmniMpcController()
         self.current_waypoint_index: int = 0
         self.global_path: List[List[float]] = []
         self.local_path: List[List[float]] = []
@@ -152,6 +153,9 @@ class Ros2Bridge(BaseRobotBridge):
         self.stm32_cmd_vel_pub = None
         self.estop_pub = None
         self.goal_pub = None
+        self.calib_cmd_pub = None
+        self.latest_calib_data: dict = {}
+        self.calib_status_data: dict = {}
 
     async def start(self) -> None:
         if self.running:
@@ -183,11 +187,13 @@ class Ros2Bridge(BaseRobotBridge):
         self.safe_cmd_vel_pub = self.node.create_publisher(Twist, "safe_cmd_vel", 10)
         self.stm32_cmd_vel_pub = self.node.create_publisher(Twist, "stm32_cmd_vel", 10)
         self.estop_pub = self.node.create_publisher(Bool, "estop", 10)
+        self.calib_cmd_pub = self.node.create_publisher(String, "calib/cmd", 10)
         if PoseStamped is not None:
             self.goal_pub = self.node.create_publisher(PoseStamped, "goal_pose", 10)
 
         # Subscribers - Cảm biến môi trường & Gazebo (dùng SensorDataQoS BestEffort)
         self.node.create_subscription(LaserScan, "scan", self._on_scan, qos_profile_sensor_data)
+        self.node.create_subscription(String, "calib/status", self._on_calib_status, 10)
 
         # Subscribers - Phản hồi từ STM32 & EKF
         self.node.create_subscription(Odometry, "wheel/odom", self._on_wheel_odom, 10)
@@ -498,9 +504,24 @@ class Ros2Bridge(BaseRobotBridge):
         try:
             data = json.loads(msg.data)
             self.debug_telemetry = DebugTelemetry(**data)
+            self.latest_calib_data.update(data)
             stream_monitor.record("stm32_debug_data", f"debug data received ({len(msg.data)} bytes)")
         except Exception as e:
             logger.debug(f"Error parsing debug/data: {e}")
+
+    def _on_calib_status(self, msg: String):
+        try:
+            data = json.loads(msg.data)
+            self.calib_status_data = data
+            self.latest_calib_data.update(data)
+        except Exception as e:
+            logger.debug(f"Error parsing calib/status: {e}")
+
+    def send_calib_cmd(self, payload: dict):
+        if self.calib_cmd_pub and self.running:
+            msg = String()
+            msg.data = json.dumps(payload)
+            self.calib_cmd_pub.publish(msg)
 
     def _on_status(self, msg: String):
         self.status_msg = str(msg.data)
@@ -728,7 +749,7 @@ class Ros2Bridge(BaseRobotBridge):
         return vr_x, vr_y, wz, dist_to_final, local_path
 
     def _autonomy_loop(self):
-        """Vòng lặp bám đích tự hành khép kín né vật cản (Closed-loop Omni Goal Tracker) 15Hz."""
+        """Vòng lặp bám đích tự hành khép kín MPC né vật cản (Closed-loop Omni MPC Tracker) 15Hz."""
         while self.running:
             time.sleep(0.066)
             if not self.active_goal or self.estop_active:
@@ -738,30 +759,28 @@ class Ros2Bridge(BaseRobotBridge):
             gy = self.active_goal["y"]
             dist_to_final = math.hypot(gx - self.odom_x, gy - self.odom_y)
 
-            # 1. Kiểm tra xem đã đến đích trong ngưỡng 12cm chưa
-            if dist_to_final <= 0.12:
+            # 1. Kiểm tra xem đã đến đích trong ngưỡng chính xác 5cm chưa
+            if dist_to_final <= 0.05:
                 for _ in range(3):
                     self._publish_twist(0.0, 0.0, 0.0)
                     time.sleep(0.02)
                 self.nav_state = "reached"
                 self.active_goal = None
                 self.local_path = []
-                logger.info(f"Tự hành: Đã đến điểm đích ({gx:.2f}, {gy:.2f}) thành công và dừng hẳn!")
+                self.mpc_controller.reset()
+                logger.info(f"Tự hành MPC: Đã đến điểm đích ({gx:.2f}, {gy:.2f}) thành công và dừng hẳn!")
                 continue
 
-            # 2. Tìm điểm Waypoint dẫn đường từ A* global_path
-            tx, ty = gx, gy
-            if self.global_path and len(self.global_path) > 1:
-                while self.current_waypoint_index < len(self.global_path) - 1:
-                    wp = self.global_path[self.current_waypoint_index]
-                    if math.hypot(wp[0] - self.odom_x, wp[1] - self.odom_y) < 0.35:
-                        self.current_waypoint_index += 1
-                    else:
-                        break
-                target_wp = self.global_path[self.current_waypoint_index]
-                tx, ty = target_wp[0], target_wp[1]
-
-            vr_x, vr_y, wz, dist, local_path = self._compute_nav_velocities(tx, ty, gx, gy, dist_to_final)
+            # 2. Tính toán quỹ đạo tối ưu MPC né vật cản
+            vr_x, vr_y, wz, dist, local_path = self.mpc_controller.compute(
+                self.odom_x,
+                self.odom_y,
+                self.odom_theta,
+                self.global_path,
+                gx,
+                gy,
+                self.lidar_points,
+            )
 
             self.nav_state = "navigating"
             self._publish_twist(vr_x, vr_y, wz)

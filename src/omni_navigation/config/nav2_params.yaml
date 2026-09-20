@@ -74,8 +74,8 @@ controller_server:
     general_goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.1
-      yaw_goal_tolerance: 0.15
+      xy_goal_tolerance: 0.05
+      yaw_goal_tolerance: 0.08
       transform_tolerance: 0.2
 
     # Holonomic MPPI Controller (supports simultaneous vx, vy, wz)
@@ -268,8 +268,8 @@ velocity_smoother:
     feedback: "OPEN_LOOP"
     max_velocity: [0.54, 0.54, 3.0]
     min_velocity: [-0.54, -0.54, -3.0]
-    max_accel: [0.8, 0.8, 2.5]
-    max_decel: [-0.8, -0.8, -2.5]
+    max_accel: [1.0, 1.0, 3.2]
+    max_decel: [-1.0, -1.0, -3.2]
     odom_topic: "odometry/filtered"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

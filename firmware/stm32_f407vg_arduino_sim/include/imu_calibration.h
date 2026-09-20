@@ -43,6 +43,25 @@ enum ImuCalibState : uint8_t {
     CALIB_FAILED_MATH = 6U
 };
 
+static const uint8_t kMaxArbitraryPoses = 24U;
+
+struct ArbitraryPose {
+    float accel_mean[3];
+};
+
+struct ExtrinsicsCalibrationParams {
+    float lever_arm[3];         // [lx, ly, lz] in meters (relative to base_link)
+    float time_delay_sec;       // temporal delay in seconds
+    bool extrinsics_calibrated;
+};
+
+struct EncoderCalibrationParams {
+    float wheel_radii[4];       // [r1, r2, r3, r4] in meters
+    float wheelbase_m;          // L
+    float track_width_m;        // W
+    bool encoder_calibrated;
+};
+
 struct ImuCalibrationParams {
     float gyro_bias[3];            // [bx, by, bz] in rad/s
     float accel_scale[3];          // [sx, sy, sz] unitless (~1.0)
@@ -53,6 +72,7 @@ struct ImuCalibrationParams {
     float covariance_inflation;    // alpha
     bool gyro_calibrated;
     bool accel_calibrated;
+    bool calibration_enabled;
 };
 
 struct ImuCalibProgress {
@@ -68,6 +88,8 @@ public:
     ImuCalibrator();
 
     void reset();
+    void set_enabled(bool enabled) { params_.calibration_enabled = enabled; }
+    bool is_enabled() const { return params_.calibration_enabled; }
 
     // Gyroscope Calibration
     bool start_gyro_calibration(uint32_t target_samples = kMinGyroCalibrationSamples);
@@ -79,6 +101,23 @@ public:
     bool update_accel_sample(const float accel_raw[3]);
     bool finish_accel_face();
     bool compute_accel_calibration(float &max_norm_error);
+
+    // Arbitrary Multi-Pose Static Calibration (Tedaldi et al. ICRA 2014 & imu_tk)
+    bool add_arbitrary_pose(const float accel_mean[3]);
+    bool compute_multi_pose_calibration(float &max_norm_error);
+    uint8_t get_arbitrary_pose_count() const { return arbitrary_pose_count_; }
+    void clear_arbitrary_poses() { arbitrary_pose_count_ = 0U; }
+    const ArbitraryPose* get_arbitrary_poses() const { return arbitrary_poses_; }
+
+    // Encoder Calibration (r1, r2, r3, r4 and L+W)
+    void calibrate_wheel_radii(float true_distance_m, const float wheel_travel_m[4]);
+    const EncoderCalibrationParams& get_encoder_params() const { return encoder_params_; }
+
+    // Extrinsics Lever-Arm Calibration
+    bool compute_lever_arm(float w_sq_1, float ax_1, float ay_1,
+                           float w_sq_2, float ax_2, float ay_2);
+    const ExtrinsicsCalibrationParams& get_extrinsics_params() const { return extrinsics_params_; }
+    void set_extrinsics_params(const ExtrinsicsCalibrationParams& params) { extrinsics_params_ = params; }
 
     // Real-time correction & ENU transformation
     void apply(const ImuSample &raw, ImuSample &calibrated) const;
@@ -101,6 +140,8 @@ public:
 
 private:
     ImuCalibrationParams params_;
+    EncoderCalibrationParams encoder_params_;
+    ExtrinsicsCalibrationParams extrinsics_params_;
     ImuCalibState state_;
     uint8_t current_stage_;
     uint32_t target_samples_;
@@ -114,6 +155,10 @@ private:
     float accel_face_sum_[FACE_COUNT][3];
     uint32_t accel_face_count_[FACE_COUNT];
     bool face_completed_[FACE_COUNT];
+
+    // Arbitrary Multi-Pose storage
+    ArbitraryPose arbitrary_poses_[kMaxArbitraryPoses];
+    uint8_t arbitrary_pose_count_;
 };
 
 #endif // IMU_CALIBRATION_H

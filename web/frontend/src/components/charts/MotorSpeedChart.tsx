@@ -9,8 +9,8 @@ interface MotorSpeedChartProps {
 
 export function MotorSpeedChart({ data }: MotorSpeedChartProps) {
   const renderMotorChart = (motorIdx: number) => (
-    <div key={motorIdx} className="bg-slate-50 p-2 rounded border border-slate-200">
-      <h3 className="text-sm font-semibold mb-2">Motor {motorIdx + 1}</h3>
+    <div key={motorIdx} className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+      <h3 className="text-xs font-semibold text-slate-700 mb-2">Motor {motorIdx + 1}</h3>
       <div className="h-40">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
@@ -29,8 +29,8 @@ export function MotorSpeedChart({ data }: MotorSpeedChartProps) {
   );
 
   return (
-    <div className="bg-white p-4 rounded border border-slate-200 col-span-full">
-      <h2 className="text-lg font-bold mb-4">Motor Speeds (rad/s)</h2>
+    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm col-span-full">
+      <h2 className="text-sm font-bold text-slate-900 mb-3">Vận Tốc 4 Động Cơ (Motor Speeds - rad/s)</h2>
       <div className="grid grid-cols-2 gap-4">
         {[0, 1, 2, 3].map(renderMotorChart)}
       </div>

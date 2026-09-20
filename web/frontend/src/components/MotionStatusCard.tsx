@@ -20,7 +20,7 @@ export function MotionStatusCard({ odom }: MotionStatusCardProps) {
   const speed = Math.sqrt(vx * vx + vy * vy);
 
   return (
-    <div className="rounded border border-slate-200 bg-white p-5">
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2">

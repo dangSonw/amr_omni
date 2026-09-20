@@ -476,7 +476,7 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded p-3 sm:p-4 flex flex-col h-full text-slate-800">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 sm:p-4 flex flex-col h-full text-slate-800">
       {/* Header Map */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200 mb-2.5">
         <div className="flex items-center gap-2">

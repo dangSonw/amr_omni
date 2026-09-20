@@ -37,7 +37,6 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
               <th className="py-2 px-3">Tên Luồng</th>
               <th className="py-2 px-3">Topic ROS</th>
               <th className="py-2 px-3">Tần Số (Hz)</th>
-              <th className="py-2 px-3">Độ Trễ</th>
               <th className="py-2 px-3">Trạng Thái</th>
             </tr>
           </thead>
@@ -52,7 +51,6 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
                   <td className="py-2 px-3 font-bold text-slate-800">
                     {stream.actual_frequency_hz.toFixed(1)} / {stream.target_frequency_hz}
                   </td>
-                  <td className="py-2 px-3 text-slate-500">{stream.latency_ms.toFixed(1)} ms</td>
                   <td className="py-2 px-3 font-sans">
                     {stream.status === "active" ? (
                       <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-[11px]">
@@ -72,7 +70,7 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="py-4 text-center text-slate-400 font-sans">
+                <td colSpan={4} className="py-4 text-center text-slate-400 font-sans">
                   Đang đồng bộ luồng dữ liệu...
                 </td>
               </tr>

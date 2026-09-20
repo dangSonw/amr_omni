@@ -4,18 +4,13 @@ import { useState, useEffect, useRef } from "react";
 import { useRobotWs } from "@/hooks/useRobotWs";
 import { Header } from "@/components/Header";
 import { Sidebar, NavTab } from "@/components/Sidebar";
-import { MotionStatusCard } from "@/components/MotionStatusCard";
 import { ConfigPanel } from "@/components/ConfigPanel";
-import { CalibrationPanel } from "@/components/CalibrationPanel";
 import { CameraFeed } from "@/components/CameraFeed";
 import { MapNavigation } from "@/components/MapNavigation";
-import { SensorCards } from "@/components/SensorCards";
-import { WheelDiagnostics } from "@/components/WheelDiagnostics";
 import { StreamMatrix } from "@/components/StreamMatrix";
-import { MotorSpeedChart } from "@/components/charts/MotorSpeedChart";
 import { ImuQuaternionDisplay } from "@/components/charts/ImuQuaternionDisplay";
-import { AngularVelocityChart } from "@/components/charts/AngularVelocityChart";
 import { LinearVelocityChart } from "@/components/charts/LinearVelocityChart";
+import { AngularVelocityChart } from "@/components/charts/AngularVelocityChart";
 import { DebugTelemetry } from "@/types/robot";
 
 const LINEAR_SPEED = 0.35; // m/s
@@ -197,41 +192,31 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Cột Phải (Camera Live Feed & Thẻ Động Học) */}
+              {/* Cột Phải (Camera Live Feed) */}
               <div className="xl:col-span-5 2xl:col-span-4 flex flex-col gap-4">
                 {/* Camera Live Feed */}
-                <div className="h-[320px]">
+                <div className="h-[360px]">
                   <CameraFeed />
                 </div>
-
-                {/* Thẻ Động Học & Hướng Di Chuyển */}
-                <MotionStatusCard odom={telemetry?.odom} />
               </div>
             </div>
           )}
 
-          {/* Tab 2: Hiệu Chuẩn Cảm Biến & Động Học (Calibration) */}
-          {activeTab === "calib" && (
-            <div className="w-full">
-              <CalibrationPanel />
-            </div>
-          )}
-
-          {/* Tab 3: Cấu Hình Tham Số (Settings) */}
+          {/* Tab 2: Cấu Hình Tham Số (Settings) */}
           {activeTab === "config" && (
             <div className="w-full">
               <ConfigPanel />
             </div>
           )}
 
+          {/* Tab 3: Giám Sát Luồng Giao Tiếp (Monitor) */}
           {activeTab === "debug" && (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 w-full">
-              <MotorSpeedChart data={debugHistory} debug={telemetry?.debug} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full">
               <ImuQuaternionDisplay imu={telemetry?.imu} debug={telemetry?.debug} data={debugHistory} />
-              <AngularVelocityChart data={debugHistory} />
               <LinearVelocityChart data={debugHistory} />
-              <SensorCards imu={telemetry?.imu} odom={telemetry?.odom} onResetOdom={resetOdom} />
-              <WheelDiagnostics wheels={telemetry?.wheels} />
+              <div className="col-span-full">
+                <AngularVelocityChart data={debugHistory} />
+              </div>
               <div className="col-span-full">
                 <StreamMatrix streams={telemetry?.streams} />
               </div>

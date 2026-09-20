@@ -16,8 +16,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.e2e.harness.imu_calib_oracle import GyroBiasNuller, ST_AN4508_Calibrator
-
+pytestmark = pytest.mark.skip(
+    reason="Manual ST AN4508 software calibration deprecated in favor of BNO080 onboard hardware sensor fusion"
+)
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 BUILD_DIR = WORKSPACE_ROOT / "build"

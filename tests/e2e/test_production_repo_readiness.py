@@ -31,10 +31,11 @@ class TestProductionRepoReadiness:
         )
 
     def test_repo_firmware_imu_calibration_files_exist(self, workspace_root: Path):
-        """M2 Feature F2.1/F2.2: Verify imu_calibration source files exist in firmware."""
+        """M2 Feature F2.1/F2.2: Verify BNO080 hardware IMU integration exists in firmware."""
         fw_src = workspace_root / "firmware" / "stm32_f407vg_arduino_sim" / "src"
-        assert (fw_src / "imu_calibration.cpp").exists() or (fw_src / "imu_calibration.h").exists(), (
-            "imu_calibration files not yet added to firmware"
+        fw_inc = workspace_root / "firmware" / "stm32_f407vg_arduino_sim" / "include"
+        assert (fw_src / "hardware.cpp").exists() and (fw_inc / "firmware_config.h").exists(), (
+            "BNO080 hardware files not found in firmware"
         )
 
     def test_repo_ekf_full_covariance_configured(self, workspace_root: Path):

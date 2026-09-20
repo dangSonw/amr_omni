@@ -119,11 +119,11 @@ controller_server:
       ObstaclesCritic:
         enabled: true
         cost_power: 1
-        repulsion_weight: 1.5
-        critical_weight: 20.0
+        repulsion_weight: 3.5
+        critical_weight: 40.0
         consider_footprint: true
-        collision_cost: 10000.0
-        near_goal_distance: 0.3
+        collision_cost: 20000.0
+        near_goal_distance: 0.25
       GoalCritic:
         enabled: true
         cost_power: 1

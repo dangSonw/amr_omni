@@ -58,3 +58,22 @@ Xây dựng pipeline kích hoạt và trực quan hóa hiệu chuẩn hoàn ch�
 ## Follow-up — 2026-09-19T11:11:54Z
 
 Người dùng yêu cầu tiếp tục công việc đã giao trước đó: tiếp tục triển khai từ Milestone 2 (IMU Intrinsic Calibration trên STM32), Milestone 3 (EKF Covariance Tuning & Laser Filter Masking), Milestone 4 (Binary Serial Protocol & FastAPI Web UI Calibration), và hoàn tất Milestone 5 (toàn bộ 151 E2E tests). Vui lòng tiếp tục điều phối và thực thi ngay.
+
+## Follow-up — 2026-09-20T07:09:06Z
+
+Thực thi dự án AMR Omni Mecanum AGV theo yêu cầu của user ngay trong working directory /home/sonev/amr_omni:
+
+Dự án phát triển và chuẩn hóa hệ thống AMR Mecanum 4 bánh (amr_omni), tích hợp Firmware STM32F407 (FreeRTOS, PLL observer, M/T hybrid velocity, ST AN4508 IMU calib), ROS 2 Jazzy stack (Kinematics Kr compensation, EKF robot_localization, Nav2, Gazebo Sim vs Real Robot bridge), và Web UI (FastAPI + Next.js).
+
+Working directory: /home/sonev/amr_omni
+Integrity mode: development
+
+Yêu cầu chi tiết:
+1. Đọc và tuân thủ các chỉ dẫn trong .agents, .claude và dùng gitnexus (chỉ mục hiện có) để phân tích code, call graph, impact.
+2. Áp dụng chuẩn Ponytail (.claude/skills/ponytail, .claude/skills/ponytail-review): code ngắn gọn, súc tích nhất, ưu tiên stdlib và ROS 2 native node, loại bỏ boilerplate/abstractions thừa (YAGNI), diff ngắn nhất có thể.
+3. Đảm bảo hoạt động đồng nhất giữa môi trường thật (Real Robot với real_robot_bringup.launch.py, stm32_bridge) và môi trường ảo Gazebo (simulation_bringup.launch.py, stm32_simulator):
+   - Single TF Authority: duy nhất ekf_node phát odom -> base_link TF.
+   - Parity binary serial protocol frames giữa STM32 firmware C++ và Simulator.
+4. Chạy và kiểm tra toàn bộ test suite (pytest tests/, 191+ tests), đảm bảo pass 100%.
+
+Thực hiện toàn bộ các bước triển khai, kiểm tra và báo cáo kết quả cuối cùng.

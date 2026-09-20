@@ -42,6 +42,7 @@ struct ImuSample {
     float linear_accel_mps2[3];
     float gyro_rad_s[3];
     float quaternion_xyzw[4];
+    float accuracy_rad;
     bool valid;
 };
 

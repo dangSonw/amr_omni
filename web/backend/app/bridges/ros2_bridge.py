@@ -293,6 +293,9 @@ class Ros2Bridge(BaseRobotBridge):
         self.odom_y = 0.0
         self.odom_theta = 0.0
         self.imu_yaw_rad = 0.0
+        self._has_scan_match = False
+        if hasattr(self, "grid_planner") and self.grid_planner:
+            self.grid_planner.clear()
         logger.info("Reset odometry coordinates to (0, 0, 0)")
 
     def get_status(self) -> RobotStatus:
@@ -421,10 +424,21 @@ class Ros2Bridge(BaseRobotBridge):
         self.lidar_points = points
         if hasattr(self, "grid_planner") and self.grid_planner and points:
             self.grid_planner.add_scan(self.odom_x, self.odom_y, self.odom_theta, points)
+            if getattr(self.grid_planner, "last_matched_pose", None):
+                corr_x, corr_y, corr_th = self.grid_planner.last_matched_pose
+                self.odom_x = corr_x
+                self.odom_y = corr_y
+                self.odom_theta = corr_th
+                self.yaw_deg = float(math.degrees(corr_th))
+                self._has_scan_match = True
         dist_str = f"min={min_dist:.2f}m" if min_dist != float("inf") else "min=N/A"
         stream_monitor.record("sensor_lidar", f"rays={len(ranges)}, valid={len(points)}, {dist_str}")
 
     def _on_wheel_odom(self, msg: Odometry):
+        now = time.time()
+        last_wheel_time = getattr(self, "_last_wheel_odom_time", None)
+        self._last_wheel_odom_time = now
+
         self.wheel_vx = float(msg.twist.twist.linear.x)
         self.wheel_vy = float(msg.twist.twist.linear.y)
         self.wheel_wz = float(msg.twist.twist.angular.z)
@@ -432,8 +446,17 @@ class Ros2Bridge(BaseRobotBridge):
             self.odom_vx = self.wheel_vx
             self.odom_vy = self.wheel_vy
             self.odom_wz = self.wheel_wz
-            self.odom_x = float(msg.pose.pose.position.x)
-            self.odom_y = float(msg.pose.pose.position.y)
+            if not getattr(self, "_has_scan_match", False):
+                self.odom_x = float(msg.pose.pose.position.x)
+                self.odom_y = float(msg.pose.pose.position.y)
+            elif last_wheel_time is not None:
+                dt = now - last_wheel_time
+                if 0.0 < dt < 0.2:
+                    cos_th = math.cos(self.odom_theta)
+                    sin_th = math.sin(self.odom_theta)
+                    self.odom_x += (cos_th * self.wheel_vx - sin_th * self.wheel_vy) * dt
+                    self.odom_y += (sin_th * self.wheel_vx + cos_th * self.wheel_vy) * dt
+        stream_monitor.record("stm32_wheel_odom", f"vx={self.wheel_vx:.2f}, vy={self.wheel_vy:.2f}, wz={self.wheel_wz:.2f}")
 
     def _on_odom(self, msg: Odometry):
         self._has_filtered_odom = True
@@ -498,7 +521,7 @@ class Ros2Bridge(BaseRobotBridge):
         self.imu_yaw_rad = float(yaw_rad)
         self.odom_theta = float(yaw_rad)
 
-        stream_monitor.record("stm32_imu", f"yaw={self.yaw_deg:.1f}°, gz={self.gyro_z:.2f} rad/s")
+        stream_monitor.record("stm32_imu_data", f"yaw={self.yaw_deg:.1f}°, gz={self.gyro_z:.2f} rad/s")
 
     def _on_debug_data(self, msg: String):
         try:
@@ -750,17 +773,19 @@ class Ros2Bridge(BaseRobotBridge):
 
     def _autonomy_loop(self):
         """Vòng lặp bám đích tự hành khép kín MPC né vật cản (Closed-loop Omni MPC Tracker) 15Hz."""
+        loop_counter = 0
         while self.running:
             time.sleep(0.066)
             if not self.active_goal or self.estop_active:
                 continue
 
+            loop_counter += 1
             gx = self.active_goal["x"]
             gy = self.active_goal["y"]
             dist_to_final = math.hypot(gx - self.odom_x, gy - self.odom_y)
 
-            # 1. Kiểm tra xem đã đến đích trong ngưỡng chính xác 5cm chưa
-            if dist_to_final <= 0.05:
+            # 1. Kiểm tra xem đã đến đích trong ngưỡng chính xác 8cm chưa
+            if dist_to_final <= 0.08:
                 for _ in range(3):
                     self._publish_twist(0.0, 0.0, 0.0)
                     time.sleep(0.02)
@@ -771,7 +796,13 @@ class Ros2Bridge(BaseRobotBridge):
                 logger.info(f"Tự hành MPC: Đã đến điểm đích ({gx:.2f}, {gy:.2f}) thành công và dừng hẳn!")
                 continue
 
-            # 2. Tính toán quỹ đạo tối ưu MPC né vật cản
+            # 2. Liên tục tái lập kế hoạch động (Dynamic Replanning) mỗi ~0.26s (4 chu kỳ) để né vật cản mới xuất hiện
+            if loop_counter % 4 == 0 and hasattr(self, "grid_planner") and self.grid_planner:
+                new_path = self.grid_planner.plan_path(self.odom_x, self.odom_y, gx, gy)
+                if new_path and len(new_path) >= 2:
+                    self.global_path = new_path
+
+            # 3. Tính toán quỹ đạo tối ưu MPC né vật cản
             vr_x, vr_y, wz, dist, local_path = self.mpc_controller.compute(
                 self.odom_x,
                 self.odom_y,
@@ -805,6 +836,7 @@ class Ros2Bridge(BaseRobotBridge):
         """Xóa bộ nhớ bản đồ vật cản và làm mới lộ trình."""
         if hasattr(self, "grid_planner") and self.grid_planner:
             self.grid_planner.clear()
+        self._has_scan_match = False
         self.global_path = []
         self.local_path = []
         logger.info("Bộ nhớ bản đồ vật cản và lộ trình đã được xóa trắng.")

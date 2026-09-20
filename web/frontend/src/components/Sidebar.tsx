@@ -3,7 +3,7 @@
 import React from "react";
 import { LayoutDashboard, Sliders, Activity, Compass } from "lucide-react";
 
-export type NavTab = "cockpit" | "calib" | "config" | "debug";
+export type NavTab = "cockpit" | "config" | "debug";
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -19,12 +19,6 @@ export function Sidebar({ activeTab, onSelectTab }: SidebarProps) {
       icon: LayoutDashboard,
     },
     {
-      id: "calib" as NavTab,
-      label: "Calibration",
-      sublabel: "IMU & Kinematics",
-      icon: Compass,
-    },
-    {
       id: "config" as NavTab,
       label: "System Config",
       sublabel: "Parameters & Limits",
@@ -33,7 +27,7 @@ export function Sidebar({ activeTab, onSelectTab }: SidebarProps) {
     {
       id: "debug" as NavTab,
       label: "Debug Monitor",
-      sublabel: "Charts & Diagnostics",
+      sublabel: "Stream Diagnostics",
       icon: Activity,
     },
   ];

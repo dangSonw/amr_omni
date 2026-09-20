@@ -18,7 +18,8 @@ Adafruit_BNO08x bno08x(-1);
 sh2_SensorValue_t sensor_value;
 ImuSample imu_sample_cache = {{0.0F, 0.0F, 0.0F},
                               {0.0F, 0.0F, 0.0F},
-                              {0.0F, 0.0F, 0.0F, 1.0F}, false};
+                              {0.0F, 0.0F, 0.0F, 1.0F},
+                              0.0F, false};
 bool imu_initialized = false;
 
 const uint8_t kMotorPwmPins[kWheelCount] = {PA8, PB4, PB5, PB9};
@@ -142,6 +143,8 @@ bool read_imu(ImuSample &sample) {
             sensor_value.un.rotationVector.k;
         imu_sample_cache.quaternion_xyzw[3] =
             sensor_value.un.rotationVector.real;
+        imu_sample_cache.accuracy_rad =
+            sensor_value.un.rotationVector.accuracy;
     } else {
         sample = imu_sample_cache;
         return imu_sample_cache.valid;

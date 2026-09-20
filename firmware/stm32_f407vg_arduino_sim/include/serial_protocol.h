@@ -10,7 +10,7 @@
 #define SERIAL_TAIL_BYTE     0x7D
 
 #define SERIAL_MAX_PAYLOAD_LEN 64
-#define SERIAL_FRAME_OVERHEAD   7  // Header(2) + Len(1) + Seq(1) + MsgID(1) + CRC(2) + Tail(1)
+#define SERIAL_FRAME_OVERHEAD   8  // Header(2) + Len(1) + Seq(1) + MsgID(1) + CRC(2) + Tail(1)
 
 // Message IDs
 enum SerialMsgId : uint8_t {
@@ -26,6 +26,39 @@ enum SerialMsgId : uint8_t {
     RESP_CALIB_WHEEL_RESULT      = 0x83,
     RESP_CALIB_NOISE_RESULT      = 0x84
 };
+
+#pragma pack(push, 1)
+
+struct SerialProgressPayload {
+    uint8_t calib_type;
+    uint8_t stage;
+    uint8_t progress_percent;
+    uint8_t status_code;
+    float live_metric;
+};
+
+struct SerialImuResultPayload {
+    float bias_g[3];
+    float bias_a[3];
+    float scale_a[3];
+    float residual_norm;
+};
+
+struct SerialWheelResultPayload {
+    float radii[4];
+    float leff;
+    float weff;
+    float residual_err;
+};
+
+struct SerialNoiseResultPayload {
+    float ng;
+    float kg;
+    float na;
+    float ka;
+};
+
+#pragma pack(pop)
 
 struct SerialFrame {
     uint8_t seq;

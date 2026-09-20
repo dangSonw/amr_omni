@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
 from app.bridges import get_bridge
+from app.services import calib_service
 
 logger = logging.getLogger("amr_web.calib")
 
@@ -159,6 +160,8 @@ _calib_state: Dict[str, Any] = {
     },
     "error_message": None,
 }
+
+calib_service.register_calib_state(_calib_state)
 
 _sampling_task: Optional[asyncio.Task] = None
 
@@ -880,10 +883,16 @@ async def apply_calibration(payload: Optional[CalibApplyPayload] = None):
             "gyro_bias": _calib_state["results"]["gyro_bias"],
             "is_calibrated": True,
         })
+
+    persisted_files = {}
+    if payload is None or payload.save_yaml:
+        persisted_files = calib_service.persist_calibration_yaml(_calib_state.get("results", {}))
+
     return {
         "status": "ok",
         "message": "Các tham số hiệu chuẩn đã được áp dụng xuống STM32 và lưu trữ thành công",
         "results": _calib_state.get("results"),
+        "persisted_files": persisted_files,
     }
 
 

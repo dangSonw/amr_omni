@@ -66,5 +66,18 @@
         </imu>
       </sensor>
     </gazebo>
+    <!-- Canonical alias for laser_link -->
+    <link name="laser_link"/>
+    <joint name="laser_link_alias" type="fixed">
+      <parent link="lidar_link_1"/><child link="laser_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <!-- Canonical alias for imu_link -->
+    <link name="imu_link"/>
+    <joint name="imu_link_alias" type="fixed">
+      <parent link="imu_link_1"/><child link="imu_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
   </xacro:macro>
 </robot>

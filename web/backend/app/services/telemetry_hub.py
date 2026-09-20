@@ -6,6 +6,7 @@ from fastapi import WebSocket
 
 from app.bridges import get_bridge
 from app.services.stream_monitor import stream_monitor
+from app.services.calib_service import get_calib_telemetry_summary
 
 logger = logging.getLogger("amr_web.telemetry_hub")
 
@@ -81,6 +82,7 @@ class TelemetryHub:
                         "paths": bridge.get_path_telemetry().model_dump(),
                         "streams": [s.model_dump() for s in stream_monitor.get_all()],
                         "debug": bridge.get_debug_telemetry().model_dump() if bridge.get_debug_telemetry() else None,
+                        "calib": get_calib_telemetry_summary(),
                     }
                     message = json.dumps(payload)
 

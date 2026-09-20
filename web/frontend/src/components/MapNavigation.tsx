@@ -605,39 +605,15 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => {
-              setMapMode("custom");
-              setCustomAngleDeg((a) => (a + 90) % 360);
-            }}
-            className="p-1.5 bg-white/90 text-slate-700 rounded-lg hover:bg-slate-100 border border-slate-200 shadow-sm transition"
-            title="Rotate view 90°"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-          </button>
-          <button
             onClick={() => setFollowRobot((f) => !f)}
             className={`p-1.5 rounded-lg border transition ${
               followRobot
                 ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
                 : "bg-white/90 text-slate-700 hover:bg-slate-100 border border-slate-200 shadow-sm"
             }`}
-            title={followRobot ? "Disable auto-follow" : "Enable auto-follow"}
+            title={followRobot ? "Tắt tự động bám theo robot" : "Bật tự động bám theo robot"}
           >
             <Bot className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={handleCenterOnRobot}
-            className="p-1.5 bg-white/90 text-slate-700 rounded-lg hover:bg-slate-100 border border-slate-200 shadow-sm transition"
-            title="Center on robot"
-          >
-            <Crosshair className="w-3.5 h-3.5 text-indigo-600" />
-          </button>
-          <button
-            onClick={handleResetCenter}
-            className="p-1.5 bg-white/90 text-slate-700 rounded-lg hover:bg-slate-100 border border-slate-200 shadow-sm transition"
-            title="Reset center (0,0)"
-          >
-            <Crosshair className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

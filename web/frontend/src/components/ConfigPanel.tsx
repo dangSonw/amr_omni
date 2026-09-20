@@ -50,13 +50,6 @@ export function ConfigPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
-      if (config.noise_profile) {
-        await fetch("/api/calib/noise", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: config.noise_profile }),
-        });
-      }
       if (res.ok) {
         setSavedSuccess(true);
         setTimeout(() => setSavedSuccess(false), 2500);
@@ -225,84 +218,6 @@ export function ConfigPanel() {
                 onChange={(e) => handleChange("motor_kd", e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
               />
-            </div>
-          </div>
-        </div>
-
-        {/* Section 3: Simulation Environment Noise & Motor Imperfections */}
-        <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-3">
-          <div>
-            <h3 className="font-bold text-slate-900 uppercase tracking-wider text-xs mb-1">
-              3. Cấu Hình Nhiễu Cảm Biến & Đặc Tính Sai Số Động Cơ (Gazebo Simulator)
-            </h3>
-            <p className="text-slate-500 text-[11px]">
-              Tùy chỉnh mức độ trôi dạt góc con quay (drift), nhiễu gia tốc kế và trượt con lăn Mecanum để kiểm thử độ bền của bộ lọc EKF và thuật toán calib.
-            </p>
-          </div>
-
-          {/* Noise Profile Selector */}
-          <div>
-            <label className="block text-slate-700 font-semibold mb-2">
-              Mức Nhiễu Môi Trường (Environment Noise Profile):
-            </label>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-              {[
-                { id: "clean", label: "Clean (Sạch)", desc: "0% nhiễu, 0 drift" },
-                { id: "low", label: "Low (Thấp)", desc: "Trôi dạt nhẹ ~0.3°/s" },
-                { id: "realistic", label: "Realistic (Thực tế)", desc: "Trôi thực tế ~1.6°/s" },
-                { id: "harsh", label: "Harsh (Khắc nghiệt)", desc: "Rung lắc mạnh ~3.5°/s" },
-              ].map((lvl) => {
-                const isSelected = (config.noise_profile || "realistic") === lvl.id;
-                return (
-                  <button
-                    key={lvl.id}
-                    type="button"
-                    onClick={() => handleChange("noise_profile", lvl.id)}
-                    className={`p-3 rounded-lg border text-left text-xs transition-all ${
-                      isSelected
-                        ? "border-blue-600 bg-blue-50/70 font-bold text-blue-900 shadow-xs ring-2 ring-blue-500/20"
-                        : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
-                    }`}
-                  >
-                    <div className="font-semibold">{lvl.label}</div>
-                    <div className="text-[10px] text-slate-500 font-normal mt-0.5">{lvl.desc}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Motor Imperfections */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2 border-t border-slate-200/60">
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Motor Encoder Jitter (± Ticks)
-              </label>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                max="5"
-                value={config.motor_jitter_ticks ?? 1}
-                onChange={(e) => handleChange("motor_jitter_ticks", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
-              />
-              <span className="text-[10px] text-slate-500 mt-1 block">Mô phỏng rung lượng tử hóa xung góc encoder</span>
-            </div>
-            <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Encoder Slip Probability (Xác suất trượt bánh)
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                min="0"
-                max="0.05"
-                value={config.encoder_slip_prob ?? 0.005}
-                onChange={(e) => handleChange("encoder_slip_prob", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
-              />
-              <span className="text-[10px] text-slate-500 mt-1 block">Mô phỏng con lăn Mecanum trượt vi mô trên sàn (0.005 = 0.5%)</span>
             </div>
           </div>
         </div>

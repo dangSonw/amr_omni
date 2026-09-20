@@ -1,0 +1,14 @@
+imu_calib:
+  gyro_bias:
+  - 0.03846
+  - -0.04612
+  - 0.05389
+  accel_scale:
+  - 1.0991
+  - 0.9029
+  - 1.0174
+  accel_bias:
+  - 0.331
+  - -0.3318
+  - -0.16
+  frame_id: imu_link

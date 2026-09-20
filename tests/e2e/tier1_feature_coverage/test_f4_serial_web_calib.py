@@ -271,6 +271,29 @@ class TestF44_AutomatedYAMLConfigurationPersistence:
         nested.mkdir(parents=True, exist_ok=True)
         assert nested.is_dir()
 
+    def test_f4_4_yaml_persistence_via_api_apply(self, tmp_path: Path, monkeypatch):
+        """Verify POST /api/calib/apply automatically persists valid YAML configs to disk."""
+        target_config = tmp_path / "config"
+        monkeypatch.setenv("AMR_CONFIG_DIR", str(target_config))
+
+        client = TestClient(app)
+        res = client.post("/api/calib/apply", json={"save_yaml": True, "persist_flash": True})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "ok"
+        assert "persisted_files" in data
+        assert "imu_calib" in data["persisted_files"]
+        assert "wheel_calib" in data["persisted_files"]
+
+        imu_yaml = target_config / "imu_calib.yaml"
+        wheel_yaml = target_config / "wheel_calib.yaml"
+        assert imu_yaml.exists()
+        assert wheel_yaml.exists()
+
+        verifier = ConfigVerifier(tmp_path)
+        assert verifier.verify_imu_calib_yaml(imu_yaml)
+        assert verifier.verify_wheel_calib_yaml(wheel_yaml)
+
 
 @pytest.mark.tier1
 class TestF45_WebUICalibrationDashboard:

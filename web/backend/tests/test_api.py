@@ -1,3 +1,10 @@
+import os
+import sys
+
+_ws_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+if _ws_root not in sys.path:
+    sys.path.insert(0, _ws_root)
+
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -32,11 +39,12 @@ def test_get_streams():
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) >= 8
+    assert len(data) >= 4
     stream_ids = [s["id"] for s in data]
     assert "jetson_cmd_vel" in stream_ids
-    assert "stm32_wheel_state" in stream_ids
-    assert "sensor_lidar" in stream_ids
+    assert "stm32_wheel_odom" in stream_ids
+    assert "stm32_imu_data" in stream_ids
+    assert "stm32_status" in stream_ids
 
 
 def test_send_cmd_vel():
@@ -248,6 +256,11 @@ def test_omni_mpc_controller():
     assert wz_arr == 0.0, "Angular velocity wz must be zero in terminal deadband to prevent oscillation"
     assert vx_arr > 0.0, "Robot should slowly crawl into final position"
 
+    # Test collision avoidance: obstacle directly in front of the robot (< 0.28m)
+    obs_front = [[0.26, 0.0]]  # directly ahead at 26cm
+    vx_obs, vy_obs, wz_obs, _, _ = mpc.compute(0.0, 0.0, 0.0, path, 2.0, 0.0, obs_front)
+    assert vx_obs <= 0.0, "Robot must NEVER drive forward into an obstacle directly in front of it"
+
 
 def test_arbitrary_pose_calibration():
     # 1. Clear poses
@@ -360,6 +373,31 @@ def test_sim_set_pose_and_tilt_compensation():
     status = res_status.json()
     assert status["sim_angles"] == [180.0, 0.0, 0.0]
     assert len(status["face_cos_deltas"]) == 6
+
+
+def test_calib_apply_persists_yaml_and_config_verifier(tmp_path, monkeypatch):
+    from tests.e2e.harness.config_verifier import ConfigVerifier
+
+    target_config_dir = tmp_path / "config"
+    monkeypatch.setenv("AMR_CONFIG_DIR", str(target_config_dir))
+
+    res = client.post("/api/calib/apply", json={"save_yaml": True, "persist_flash": True})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert "persisted_files" in data
+    assert "imu_calib" in data["persisted_files"]
+    assert "wheel_calib" in data["persisted_files"]
+
+    imu_yaml = target_config_dir / "imu_calib.yaml"
+    wheel_yaml = target_config_dir / "wheel_calib.yaml"
+    assert imu_yaml.exists()
+    assert wheel_yaml.exists()
+
+    verifier = ConfigVerifier(tmp_path)
+    assert verifier.verify_imu_calib_yaml(imu_yaml)
+    assert verifier.verify_wheel_calib_yaml(wheel_yaml)
+
 
 
 

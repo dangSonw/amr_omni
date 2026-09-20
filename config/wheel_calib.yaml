@@ -1,0 +1,8 @@
+wheel_calib:
+  wheel_radius:
+  - 0.03
+  - 0.03
+  - 0.03
+  - 0.03
+  wheelbase: 0.1312
+  track_width: 0.1312

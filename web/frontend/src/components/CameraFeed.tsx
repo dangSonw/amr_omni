@@ -19,81 +19,80 @@ export const CameraFeed: React.FC<CameraFeedProps> = () => {
   const streamSrc = `/api/camera/stream?type=${cameraType}&t=${reloadKey}`;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 sm:p-4 flex flex-col h-full text-slate-800 overflow-hidden">
-      <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 mb-2.5">
+    <div className="border-2 border-charcoal bg-white rounded-[2px] shadow-[-4px_4px_0px_#383838] p-3 sm:p-4 flex flex-col h-full text-charcoal overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-2.5 border-b-2 border-charcoal mb-2.5">
         <div className="flex items-center gap-2">
-          <Camera className={`w-4 h-4 ${cameraType === "rgb" ? "text-emerald-600" : "text-cyan-600"}`} />
-          <h3 className="font-bold text-slate-900 text-xs sm:text-sm tracking-wide">
-            {cameraType === "rgb" ? "RGB Camera" : "Depth Camera (Heatmap)"}
+          <Camera className="w-4 h-4 text-charcoal" />
+          <h3 className="font-bold text-xs sm:text-sm tracking-wider">
+            CAMERA // LIVE
           </h3>
         </div>
 
-        {/* Camera type switcher */}
+        {/* Camera Selector & Action Buttons */}
         <div className="flex items-center gap-1.5">
-          <div className="bg-slate-100 p-0.5 rounded-sm flex border border-slate-200">
+          <div className="flex border border-charcoal bg-chalk p-0.5">
             <button
               onClick={() => setCameraType("rgb")}
-              className={`px-2 py-1 rounded text-[11px] font-medium transition ${
+              className={`px-2 py-0.5 text-[11px] font-bold transition ${
                 cameraType === "rgb"
-                  ? "bg-emerald-600 text-white"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-sky text-charcoal border border-charcoal shadow-[-1px_1px_0px_#383838]"
+                  : "text-graphite hover:text-charcoal"
               }`}
             >
               RGB
             </button>
             <button
               onClick={() => setCameraType("depth")}
-              className={`px-2 py-1 rounded text-[11px] font-medium transition ${
+              className={`px-2 py-0.5 text-[11px] font-bold transition ${
                 cameraType === "depth"
-                  ? "bg-cyan-600 text-white"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-canary text-charcoal border border-charcoal shadow-[-1px_1px_0px_#383838]"
+                  : "text-graphite hover:text-charcoal"
               }`}
             >
-              Depth
+              DEPTH
             </button>
           </div>
 
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className={`p-1.5 rounded-sm text-xs font-medium flex items-center transition ${
-              isPlaying
-                ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white"
-            }`}
-            title={isPlaying ? "Pause stream" : "Play stream"}
+            className="p-1 border border-charcoal bg-white hover:bg-ice text-charcoal shadow-[-2px_2px_0px_#383838] transition"
+            title={isPlaying ? "Pause" : "Play"}
           >
             {isPlaying ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={handleRefresh}
-            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-sm transition"
-            title="Refresh stream"
+            className="p-1 border border-charcoal bg-white hover:bg-ice text-charcoal shadow-[-2px_2px_0px_#383838] transition"
+            title="Reload"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      <div className="relative flex-1 bg-slate-200 rounded-sm overflow-hidden flex items-center justify-center min-h-0 w-full border border-slate-300">
+      {/* Video / Frame Screen */}
+      <div className="relative flex-1 bg-[#222222] border-2 border-charcoal rounded-[2px] overflow-hidden flex items-center justify-center min-h-0 w-full">
         {isPlaying ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             key={`${cameraType}-${reloadKey}`}
             src={streamSrc}
-            alt="AMR Camera Live Feed"
+            alt="AMR Camera Stream"
             className="w-full h-full object-contain"
             onError={() => {}}
           />
         ) : (
-          <div className="text-center text-slate-500 text-xs">
-            <Camera className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p>Camera stream paused</p>
+          <div className="text-center text-silver text-xs">
+            <Camera className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p className="font-mono">STREAM PAUSED</p>
           </div>
         )}
 
-        <div className="absolute top-2 left-2 bg-slate-900/70 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] text-emerald-400 font-mono flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          {cameraType === "rgb" ? "RGB 640x480 @ 15 FPS" : "Depth Turbo 320x240 @ 10 FPS"}
+        {/* Telemetry Tag */}
+        <div className="absolute top-2 left-2 border border-charcoal bg-white/95 px-2 py-0.5 text-[10px] font-mono font-bold text-charcoal shadow-[-2px_2px_0px_#383838] flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-[1px] bg-emerald-500 animate-pulse border border-charcoal"></span>
+          {cameraType === "rgb" ? "RGB 640x480 @ 15 FPS" : "DEPTH 320x240 @ 10 FPS"}
         </div>
       </div>
     </div>

@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState } from "react";
 import {
   CartesianGrid,
@@ -38,205 +40,219 @@ export function ImuNineAxisChart({ imu, debug, data }: ImuNineAxisChartProps) {
   const my = debug?.imu_mag_xyz?.[1] ?? latest?.mag_y ?? 20.0;
   const mz = debug?.imu_mag_xyz?.[2] ?? latest?.mag_z ?? -45.0;
 
+  const tooltipStyle = {
+    backgroundColor: "#ffffff",
+    borderColor: "#383838",
+    borderWidth: 1.5,
+    borderRadius: 2,
+    boxShadow: "-2px 2px 0px #383838",
+    color: "#383838",
+    fontSize: 10,
+    fontFamily: "monospace",
+  };
+
   return (
-    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm col-span-full space-y-4">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-100 gap-2">
+    <div className="border-2 border-charcoal bg-white rounded-[2px] shadow-[-4px_4px_0px_#383838] p-5 col-span-full space-y-4 text-charcoal">
+      {/* Header & Sub-tabs */}
+      <div className="flex flex-wrap items-center justify-between pb-3 border-b-2 border-charcoal gap-2 font-mono">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100">
-            <Move3d className="h-4 w-4" />
-          </div>
+          <Move3d className="h-4 w-4 text-charcoal" />
           <div>
-            <h2 className="text-sm font-bold text-slate-900">
-              Dữ Liệu Cảm Biến IMU 9 Trục Độc Lập (9-Axis Sensor Telemetry)
+            <h2 className="text-sm sm:text-base font-bold tracking-wider">
+              IMU // 9-AXIS (BNO080)
             </h2>
-            <p className="text-[11px] text-slate-500">
-              Thu nhận trực tiếp từ cảm biến BNO080 qua STM32 (<code className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded">debug/data</code>): Gia tốc tuyến tính 3 trục, Gia tốc quay 3 trục và Từ trường 3 trục
+            <p className="text-[11px] text-graphite">
+              SOURCE: /debug/data @ 50HZ (ACCEL, GYRO, MAG)
             </p>
           </div>
         </div>
 
         {/* Sub-tabs */}
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg text-xs">
+        <div className="flex items-center gap-1 bg-chalk p-1 border border-charcoal text-xs">
           <button
             type="button"
             onClick={() => setActiveSubTab("all")}
-            className={`px-2.5 py-1 rounded-md font-medium transition ${
-              activeSubTab === "all" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+            className={`px-2 py-0.5 font-bold transition ${
+              activeSubTab === "all"
+                ? "bg-sky text-charcoal border border-charcoal shadow-[-1px_1px_0px_#383838]"
+                : "text-graphite hover:text-charcoal"
             }`}
           >
-            Tất Cả 9 Trục
+            ALL
           </button>
           <button
             type="button"
             onClick={() => setActiveSubTab("accel")}
-            className={`px-2.5 py-1 rounded-md font-medium transition ${
-              activeSubTab === "accel" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+            className={`px-2 py-0.5 font-bold transition ${
+              activeSubTab === "accel"
+                ? "bg-canary text-charcoal border border-charcoal shadow-[-1px_1px_0px_#383838]"
+                : "text-graphite hover:text-charcoal"
             }`}
           >
-            Gia Tốc Tuyến Tính
+            ACCEL
           </button>
           <button
             type="button"
             onClick={() => setActiveSubTab("gyro")}
-            className={`px-2.5 py-1 rounded-md font-medium transition ${
-              activeSubTab === "gyro" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+            className={`px-2 py-0.5 font-bold transition ${
+              activeSubTab === "gyro"
+                ? "bg-sketch-mint text-charcoal border border-charcoal shadow-[-1px_1px_0px_#383838]"
+                : "text-graphite hover:text-charcoal"
             }`}
           >
-            Vận Tốc Góc Gyro
+            GYRO
           </button>
           <button
             type="button"
             onClick={() => setActiveSubTab("mag")}
-            className={`px-2.5 py-1 rounded-md font-medium transition ${
-              activeSubTab === "mag" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+            className={`px-2 py-0.5 font-bold transition ${
+              activeSubTab === "mag"
+                ? "bg-sketch-coral text-charcoal border border-charcoal shadow-[-1px_1px_0px_#383838]"
+                : "text-graphite hover:text-charcoal"
             }`}
           >
-            Từ Trường Mag
+            MAG
           </button>
         </div>
       </div>
 
-      {/* 3 Sub-Panels */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Panel 1: Linear Acceleration (ax, ay, az) */}
+      {/* 3 Panels */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 font-mono">
+        {/* Panel 1: Linear Acceleration */}
         {(activeSubTab === "all" || activeSubTab === "accel") && (
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Gauge className="h-3.5 w-3.5 text-blue-600" />
-                <span className="font-bold text-xs text-slate-800">Gia Tốc Tuyến Tính (Linear Accel)</span>
+          <div className="border border-charcoal bg-chalk p-3 rounded-[2px] shadow-[-2px_2px_0px_#383838] flex flex-col space-y-2">
+            <div className="flex items-center justify-between border-b border-charcoal pb-1">
+              <div className="flex items-center gap-1 text-xs font-bold">
+                <Gauge className="h-3.5 w-3.5" />
+                <span>ACCEL (m/s²)</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">m/s²</span>
             </div>
 
-            {/* Badges */}
-            <div className="grid grid-cols-3 gap-1.5 text-center font-mono">
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-rose-500 font-bold block">AX</span>
-                <span className="text-xs font-semibold text-slate-900">{ax.toFixed(2)}</span>
+            {/* Value boxes */}
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">AX</span>
+                <span className="text-xs font-bold">{ax.toFixed(2)}</span>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-emerald-500 font-bold block">AY</span>
-                <span className="text-xs font-semibold text-slate-900">{ay.toFixed(2)}</span>
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">AY</span>
+                <span className="text-xs font-bold">{ay.toFixed(2)}</span>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-blue-500 font-bold block">AZ</span>
-                <span className="text-xs font-semibold text-slate-900">{az.toFixed(2)}</span>
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">AZ</span>
+                <span className="text-xs font-bold">{az.toFixed(2)}</span>
               </div>
             </div>
 
             {/* Chart */}
-            <div className="h-44 w-full">
+            <div className="h-36 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="2 2" stroke="#d5cfc7" />
                   <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} hide />
-                  <YAxis domain={["auto", "auto"]} stroke="#94a3b8" fontSize={10} width={30} />
+                  <YAxis domain={["auto", "auto"]} stroke="#383838" fontSize={9} width={28} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#f8fafc", fontSize: 11 }}
+                    contentStyle={tooltipStyle}
                     formatter={(val: any, name: any) => [`${Number(val).toFixed(2)} m/s²`, name]}
                   />
-                  <Legend wrapperStyle={{ fontSize: 10, paddingTop: 2 }} />
-                  <Line type="monotone" dataKey="accel_x" stroke="#ef4444" dot={false} isAnimationActive={false} name="AX" />
-                  <Line type="monotone" dataKey="accel_y" stroke="#10b981" dot={false} isAnimationActive={false} name="AY" />
-                  <Line type="monotone" dataKey="accel_z" stroke="#3b82f6" dot={false} isAnimationActive={false} name="AZ" />
+                  <Legend wrapperStyle={{ fontSize: 9, paddingTop: 2 }} />
+                  <Line type="monotone" dataKey="accel_x" stroke="#f38e84" strokeWidth={1.5} dot={false} isAnimationActive={false} name="AX" />
+                  <Line type="monotone" dataKey="accel_y" stroke="#38c1b0" strokeWidth={1.5} dot={false} isAnimationActive={false} name="AY" />
+                  <Line type="monotone" dataKey="accel_z" stroke="#6fc2ff" strokeWidth={1.5} dot={false} isAnimationActive={false} name="AZ" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
 
-        {/* Panel 2: Gyroscope (gx, gy, gz) */}
+        {/* Panel 2: Gyroscope */}
         {(activeSubTab === "all" || activeSubTab === "gyro") && (
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Move3d className="h-3.5 w-3.5 text-purple-600" />
-                <span className="font-bold text-xs text-slate-800">Gia Tốc Góc Quay (Gyroscope)</span>
+          <div className="border border-charcoal bg-chalk p-3 rounded-[2px] shadow-[-2px_2px_0px_#383838] flex flex-col space-y-2">
+            <div className="flex items-center justify-between border-b border-charcoal pb-1">
+              <div className="flex items-center gap-1 text-xs font-bold">
+                <Move3d className="h-3.5 w-3.5" />
+                <span>GYRO (rad/s)</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">rad/s</span>
             </div>
 
-            {/* Badges */}
-            <div className="grid grid-cols-3 gap-1.5 text-center font-mono">
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-rose-500 font-bold block">GX</span>
-                <span className="text-xs font-semibold text-slate-900">{gx.toFixed(3)}</span>
+            {/* Value boxes */}
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">GX</span>
+                <span className="text-xs font-bold">{gx.toFixed(3)}</span>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-emerald-500 font-bold block">GY</span>
-                <span className="text-xs font-semibold text-slate-900">{gy.toFixed(3)}</span>
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">GY</span>
+                <span className="text-xs font-bold">{gy.toFixed(3)}</span>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-purple-500 font-bold block">GZ</span>
-                <span className="text-xs font-semibold text-slate-900">{gz.toFixed(3)}</span>
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">GZ</span>
+                <span className="text-xs font-bold">{gz.toFixed(3)}</span>
               </div>
             </div>
 
             {/* Chart */}
-            <div className="h-44 w-full">
+            <div className="h-36 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="2 2" stroke="#d5cfc7" />
                   <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} hide />
-                  <YAxis domain={["auto", "auto"]} stroke="#94a3b8" fontSize={10} width={30} />
+                  <YAxis domain={["auto", "auto"]} stroke="#383838" fontSize={9} width={28} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#f8fafc", fontSize: 11 }}
+                    contentStyle={tooltipStyle}
                     formatter={(val: any, name: any) => [`${Number(val).toFixed(3)} rad/s`, name]}
                   />
-                  <Legend wrapperStyle={{ fontSize: 10, paddingTop: 2 }} />
-                  <Line type="monotone" dataKey="gyro_x" stroke="#f43f5e" dot={false} isAnimationActive={false} name="GX" />
-                  <Line type="monotone" dataKey="gyro_y" stroke="#10b981" dot={false} isAnimationActive={false} name="GY" />
-                  <Line type="monotone" dataKey="gyro_z" stroke="#8b5cf6" dot={false} isAnimationActive={false} name="GZ" />
+                  <Legend wrapperStyle={{ fontSize: 9, paddingTop: 2 }} />
+                  <Line type="monotone" dataKey="gyro_x" stroke="#f38e84" strokeWidth={1.5} dot={false} isAnimationActive={false} name="GX" />
+                  <Line type="monotone" dataKey="gyro_y" stroke="#38c1b0" strokeWidth={1.5} dot={false} isAnimationActive={false} name="GY" />
+                  <Line type="monotone" dataKey="gyro_z" stroke="#b291de" strokeWidth={1.5} dot={false} isAnimationActive={false} name="GZ" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
 
-        {/* Panel 3: Magnetometer (mx, my, mz) */}
+        {/* Panel 3: Magnetometer */}
         {(activeSubTab === "all" || activeSubTab === "mag") && (
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Compass className="h-3.5 w-3.5 text-amber-600" />
-                <span className="font-bold text-xs text-slate-800">Từ Trường 3 Trục (Magnetometer)</span>
+          <div className="border border-charcoal bg-chalk p-3 rounded-[2px] shadow-[-2px_2px_0px_#383838] flex flex-col space-y-2">
+            <div className="flex items-center justify-between border-b border-charcoal pb-1">
+              <div className="flex items-center gap-1 text-xs font-bold">
+                <Compass className="h-3.5 w-3.5" />
+                <span>MAG (µT)</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">µT</span>
             </div>
 
-            {/* Badges */}
-            <div className="grid grid-cols-3 gap-1.5 text-center font-mono">
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-rose-500 font-bold block">MX</span>
-                <span className="text-xs font-semibold text-slate-900">{mx.toFixed(1)}</span>
+            {/* Value boxes */}
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">MX</span>
+                <span className="text-xs font-bold">{mx.toFixed(1)}</span>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-emerald-500 font-bold block">MY</span>
-                <span className="text-xs font-semibold text-slate-900">{my.toFixed(1)}</span>
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">MY</span>
+                <span className="text-xs font-bold">{my.toFixed(1)}</span>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200">
-                <span className="text-[10px] text-amber-500 font-bold block">MZ</span>
-                <span className="text-xs font-semibold text-slate-900">{mz.toFixed(1)}</span>
+              <div className="bg-white border border-charcoal p-1">
+                <span className="text-[9px] font-bold text-graphite block">MZ</span>
+                <span className="text-xs font-bold">{mz.toFixed(1)}</span>
               </div>
             </div>
 
             {/* Chart */}
-            <div className="h-44 w-full">
+            <div className="h-36 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="2 2" stroke="#d5cfc7" />
                   <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} hide />
-                  <YAxis domain={["auto", "auto"]} stroke="#94a3b8" fontSize={10} width={30} />
+                  <YAxis domain={["auto", "auto"]} stroke="#383838" fontSize={9} width={28} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#f8fafc", fontSize: 11 }}
+                    contentStyle={tooltipStyle}
                     formatter={(val: any, name: any) => [`${Number(val).toFixed(1)} µT`, name]}
                   />
-                  <Legend wrapperStyle={{ fontSize: 10, paddingTop: 2 }} />
-                  <Line type="monotone" dataKey="mag_x" stroke="#ef4444" dot={false} isAnimationActive={false} name="MX" />
-                  <Line type="monotone" dataKey="mag_y" stroke="#10b981" dot={false} isAnimationActive={false} name="MY" />
-                  <Line type="monotone" dataKey="mag_z" stroke="#f59e0b" dot={false} isAnimationActive={false} name="MZ" />
+                  <Legend wrapperStyle={{ fontSize: 9, paddingTop: 2 }} />
+                  <Line type="monotone" dataKey="mag_x" stroke="#f38e84" strokeWidth={1.5} dot={false} isAnimationActive={false} name="MX" />
+                  <Line type="monotone" dataKey="mag_y" stroke="#38c1b0" strokeWidth={1.5} dot={false} isAnimationActive={false} name="MY" />
+                  <Line type="monotone" dataKey="mag_z" stroke="#ff9538" strokeWidth={1.5} dot={false} isAnimationActive={false} name="MZ" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -246,4 +262,3 @@ export function ImuNineAxisChart({ imu, debug, data }: ImuNineAxisChartProps) {
     </div>
   );
 }
-

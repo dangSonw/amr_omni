@@ -7,11 +7,9 @@ import {
   Save,
   CheckCircle2,
   XCircle,
-  Crosshair,
   ZoomIn,
   ZoomOut,
   Compass,
-  RotateCw,
   Trash2,
   Bot,
 } from "lucide-react";
@@ -29,9 +27,6 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
   paths,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Bộ nhớ vật cản tích lũy (Persistent Obstacle Map Memory)
-  // Lưu tọa độ thế giới của tất cả điểm tường/vật thể đã quét qua
   const persistentObstaclesRef = useRef<Map<string, [number, number]>>(new Map());
 
   const [goal, setGoal] = useState<{ x: number; y: number } | null>(null);
@@ -39,20 +34,16 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
   const [distanceRemaining, setDistanceRemaining] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [clearStatus, setClearStatus] = useState<string | null>(null);
-  const [mapScale, setMapScale] = useState<number>(45); // pixels per meter
+  const [mapScale, setMapScale] = useState<number>(45); // px/m
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Chế độ bản đồ: "north-up" (Cố định hệ tọa độ thế giới - mặc định, không chóng mặt)
-  // "heading-up" (Tự động xoay theo chiều của xe) hoặc "custom" (Xoay góc thủ công)
-  const [mapMode, setMapMode] = useState<"north-up" | "heading-up" | "custom">("north-up");
-  const [customAngleDeg, setCustomAngleDeg] = useState<number>(0);
+  const [mapMode, setMapMode] = useState<"north-up" | "heading-up">("north-up");
   const [followRobot, setFollowRobot] = useState<boolean>(false);
 
   const robotX = odom?.x ?? 0.0;
   const robotY = odom?.y ?? 0.0;
   const robotTheta = odom?.theta_rad ?? 0.0;
 
-  // Đồng bộ bản đồ vật cản chuẩn xác từ backend (Probabilistic Grid Planner có Ray Clearing)
   useEffect(() => {
     if (paths?.obstacles) {
       const newMap = new Map<string, [number, number]>();
@@ -64,7 +55,6 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     }
   }, [paths?.obstacles]);
 
-  // 3. Tự động bám theo xe nếu followRobot = true
   useEffect(() => {
     if (followRobot) {
       setOffset({
@@ -74,7 +64,6 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     }
   }, [followRobot, robotX, robotY, mapScale]);
 
-  // Poll trạng thái tự hành từ backend mỗi 500ms
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -109,38 +98,35 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     }
   };
 
-  const handleResetCenter = useCallback(() => {
-    setFollowRobot(false);
-    setOffset({ x: 0, y: 0 });
-  }, []);
-
-  const handleCenterOnRobot = useCallback(() => {
-    setOffset({
-      x: -robotX * mapScale,
-      y: robotY * mapScale,
-    });
-  }, [robotX, robotY, mapScale]);
-
   const handleClearMap = async () => {
     persistentObstaclesRef.current.clear();
-    setClearStatus("Cleared");
+    setClearStatus("CLEARED");
     try {
       await fetch("/api/map/clear", { method: "POST" });
     } catch {
       // Ignored
     }
-    setTimeout(() => setClearStatus(null), 2000);
+    setTimeout(() => setClearStatus(null), 1500);
   };
 
-  // Tính toán góc xoay của góc nhìn hiển thị (View Rotation Angle)
-  const viewAngleRad =
-    mapMode === "heading-up"
-      ? robotTheta - Math.PI / 2
-      : mapMode === "custom"
-      ? (customAngleDeg * Math.PI) / 180
-      : 0.0;
+  const handleSaveMap = async () => {
+    setSaveStatus("SAVING");
+    try {
+      await fetch("/api/map/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ map_name: `amr_map_${Date.now()}` }),
+      });
+      setSaveStatus("SAVED");
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch {
+      setSaveStatus("FAILED");
+      setTimeout(() => setSaveStatus(null), 2000);
+    }
+  };
 
-  // Render Canvas chính
+  const viewAngleRad = mapMode === "heading-up" ? robotTheta - Math.PI / 2 : 0.0;
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -152,21 +138,20 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     const cx = width / 2 + offset.x;
     const cy = height / 2 + offset.y;
 
-    // Clear background
-    ctx.fillStyle = "#e2e8f0";
+    // Background paper tone
+    ctx.fillStyle = "#ece7e1";
     ctx.fillRect(0, 0, width, height);
 
     ctx.save();
 
-    // Áp dụng góc xoay góc nhìn nếu không phải North-Up
     if (viewAngleRad !== 0) {
       ctx.translate(cx, cy);
       ctx.rotate(-viewAngleRad);
       ctx.translate(-cx, -cy);
     }
 
-    // 1. Draw coordinate grid (1 meter intervals)
-    ctx.strokeStyle = "#cbd5e1";
+    // Grid (1m)
+    ctx.strokeStyle = "#dcd5cc";
     ctx.lineWidth = 1;
     const step = mapScale;
     for (let x = cx % step; x < width * 2; x += step) {
@@ -182,8 +167,8 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       ctx.stroke();
     }
 
-    // Origin cross
-    ctx.strokeStyle = "#94a3b8";
+    // Axes
+    ctx.strokeStyle = "#818181";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(cx, -height);
@@ -192,9 +177,9 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     ctx.lineTo(width * 2, cy);
     ctx.stroke();
 
-    // 2. Draw Persistent Obstacles (Recorded obstacle memory)
+    // Persistent Obstacles
     if (persistentObstaclesRef.current.size > 0) {
-      ctx.fillStyle = "rgba(16, 185, 129, 0.75)";
+      ctx.fillStyle = "#10b981";
       persistentObstaclesRef.current.forEach(([ox, oy]) => {
         const px = cx + ox * mapScale;
         const py = cy - oy * mapScale;
@@ -202,9 +187,9 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       });
     }
 
-    // 3. Draw Live LiDAR Points
+    // Live LiDAR Points
     if (lidar?.points && lidar.points.length > 0) {
-      ctx.fillStyle = "#059669";
+      ctx.fillStyle = "#047857";
       const cosR = Math.cos(robotTheta);
       const sinR = Math.sin(robotTheta);
 
@@ -217,15 +202,13 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       }
     }
 
-    // 4. Draw Global Path (Lộ trình né tường toàn cục)
+    // Global Path
     const hasGlobalPath = paths?.global_path && paths.global_path.length > 1;
     if (hasGlobalPath) {
       ctx.save();
-      ctx.strokeStyle = "#38bdf8"; // Sky blue
+      ctx.strokeStyle = "#6fc2ff";
       ctx.lineWidth = 2.5;
-      ctx.setLineDash([6, 6]);
-      ctx.shadowColor = "rgba(56, 189, 248, 0.5)";
-      ctx.shadowBlur = 8;
+      ctx.setLineDash([5, 5]);
       ctx.beginPath();
       paths.global_path.forEach(([gx, gy], index) => {
         const px = cx + gx * mapScale;
@@ -236,11 +219,10 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       ctx.stroke();
       ctx.restore();
     } else if (goal) {
-      // Fallback: Tự động vẽ đường nối trực tiếp từ xe tới đích khi chưa nhận được global_path
       ctx.save();
-      ctx.strokeStyle = "#38bdf8";
+      ctx.strokeStyle = "#6fc2ff";
       ctx.lineWidth = 2;
-      ctx.setLineDash([6, 6]);
+      ctx.setLineDash([4, 4]);
       ctx.beginPath();
       ctx.moveTo(cx + robotX * mapScale, cy - robotY * mapScale);
       ctx.lineTo(cx + goal.x * mapScale, cy - goal.y * mapScale);
@@ -248,13 +230,11 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       ctx.restore();
     }
 
-    // 5. Draw Local Path (Quỹ đạo bẻ cua né vật cản thời gian thực)
+    // Local Path
     if (paths?.local_path && paths.local_path.length > 1) {
       ctx.save();
-      ctx.strokeStyle = "#34d399"; // Emerald 400
-      ctx.lineWidth = 3.5;
-      ctx.shadowColor = "rgba(52, 211, 153, 0.6)";
-      ctx.shadowBlur = 6;
+      ctx.strokeStyle = "#059669";
+      ctx.lineWidth = 3;
       ctx.beginPath();
       paths.local_path.forEach(([lx, ly], index) => {
         const px = cx + lx * mapScale;
@@ -264,63 +244,46 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       });
       ctx.stroke();
       ctx.restore();
-
-      // Vẽ các nút điểm uốn né vật cản
-      paths.local_path.forEach(([lx, ly]) => {
-        const px = cx + lx * mapScale;
-        const py = cy - ly * mapScale;
-        ctx.fillStyle = "#10b981";
-        ctx.beginPath();
-        ctx.arc(px, py, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
     }
 
-    // 6. Draw Goal Pose & Target Ring
+    // Goal
     if (goal) {
       const gx = cx + goal.x * mapScale;
       const gy = cy - goal.y * mapScale;
 
       ctx.save();
-      ctx.strokeStyle = "#f43f5e"; // Rose 500
-      ctx.fillStyle = "rgba(244, 63, 94, 0.25)";
+      ctx.strokeStyle = "#e11d48";
+      ctx.fillStyle = "rgba(225, 29, 72, 0.2)";
       ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(244, 63, 94, 0.7)";
-      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.arc(gx, gy, 10, 0, Math.PI * 2);
+      ctx.arc(gx, gy, 9, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
-      // Tâm cờ đích
-      ctx.fillStyle = "#f43f5e";
+      ctx.fillStyle = "#e11d48";
       ctx.beginPath();
-      ctx.arc(gx, gy, 4, 0, Math.PI * 2);
+      ctx.arc(gx, gy, 3.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Nhãn tọa độ đích
-      ctx.fillStyle = "#881337";
+      ctx.fillStyle = "#383838";
       ctx.font = "bold 10px monospace";
-      ctx.fillText(`(${goal.x}m, ${goal.y}m)`, gx + 12, gy + 4);
+      ctx.fillText(`[${goal.x}, ${goal.y}]`, gx + 10, gy + 4);
       ctx.restore();
     }
 
-    // 7. Draw Robot Chassis & Forward Field-of-View Cone
+    // Robot Chassis
     const rx = cx + robotX * mapScale;
     const ry = cy - robotY * mapScale;
-    const radius = 0.16 * mapScale; // ~16cm
+    const radius = 0.16 * mapScale;
 
     ctx.save();
     ctx.translate(rx, ry);
     ctx.rotate(-robotTheta);
 
-    // Nón tầm nhìn Camera & LiDAR hướng về phía trước đầu xe
-    const fovLength = 0.7 * mapScale;
+    // FOV cone
+    const fovLength = 0.65 * mapScale;
     const fovAngle = (45 * Math.PI) / 180;
-    const fovGrad = ctx.createRadialGradient(0, 0, radius, 0, 0, fovLength);
-    fovGrad.addColorStop(0, "rgba(99, 102, 241, 0.35)");
-    fovGrad.addColorStop(1, "rgba(99, 102, 241, 0.0)");
-    ctx.fillStyle = fovGrad;
+    ctx.fillStyle = "rgba(111, 194, 255, 0.25)";
     ctx.beginPath();
     ctx.moveTo(radius * 0.8, 0);
     ctx.lineTo(fovLength, -fovLength * Math.tan(fovAngle * 0.5));
@@ -328,21 +291,19 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     ctx.closePath();
     ctx.fill();
 
-    // Thân xe Omni (Chassis vuông)
-    ctx.fillStyle = "rgba(99, 102, 241, 0.85)"; // Indigo
-    ctx.strokeStyle = "#e0e7ff";
+    // Chassis Box
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#383838";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.rect(-radius, -radius, radius * 2, radius * 2);
     ctx.fill();
     ctx.stroke();
 
-    // 4 Bánh xe Omni ở 4 góc
+    // 4 Wheels
     const wheelW = radius * 0.45;
     const wheelH = radius * 0.22;
-    ctx.fillStyle = "#1e293b";
-    ctx.strokeStyle = "#94a3b8";
-    ctx.lineWidth = 1;
+    ctx.fillStyle = "#383838";
     [
       [-radius, -radius],
       [radius - wheelW, -radius],
@@ -350,63 +311,60 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       [radius - wheelW, radius - wheelH],
     ].forEach(([wx, wy]) => {
       ctx.fillRect(wx, wy, wheelW, wheelH);
-      ctx.strokeRect(wx, wy, wheelW, wheelH);
     });
 
-    // Mũi tên chỉ hướng đầu xe (Heading Arrow)
-    ctx.fillStyle = "#fbbf24"; // Amber 400
+    // Heading Arrow
+    ctx.fillStyle = "#ff9538";
+    ctx.strokeStyle = "#383838";
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(radius + 10, 0);
-    ctx.lineTo(radius - 2, -6);
-    ctx.lineTo(radius - 2, 6);
+    ctx.moveTo(radius + 8, 0);
+    ctx.lineTo(radius - 2, -5);
+    ctx.lineTo(radius - 2, 5);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
 
-    ctx.restore(); // Kết thúc vẽ robot
-    ctx.restore(); // Kết thúc view transform
+    ctx.restore();
+    ctx.restore();
 
-    // 8. HUD La Bàn Định Hướng (Compass Rose) cố định ở góc trái trên
+    // Compass
     ctx.save();
-    const compassX = 35;
-    const compassY = 35;
-    const compassR = 18;
+    const compassX = 32;
+    const compassY = 32;
+    const compassR = 16;
 
-    // Nền la bàn
-    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-    ctx.strokeStyle = "#334155";
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#383838";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.arc(compassX, compassY, compassR, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    // Kim la bàn xoay theo viewAngleRad
     ctx.translate(compassX, compassY);
     ctx.rotate(-viewAngleRad);
 
-    // Mũi kim Bắc (Đỏ)
-    ctx.fillStyle = "#f43f5e";
+    ctx.fillStyle = "#e11d48";
     ctx.beginPath();
-    ctx.moveTo(0, -compassR + 4);
-    ctx.lineTo(4, 0);
-    ctx.lineTo(-4, 0);
+    ctx.moveTo(0, -compassR + 3);
+    ctx.lineTo(3.5, 0);
+    ctx.lineTo(-3.5, 0);
     ctx.closePath();
     ctx.fill();
 
-    // Mũi kim Nam (Trắng)
-    ctx.fillStyle = "#94a3b8";
+    ctx.fillStyle = "#383838";
     ctx.beginPath();
-    ctx.moveTo(0, compassR - 4);
-    ctx.lineTo(4, 0);
-    ctx.lineTo(-4, 0);
+    ctx.moveTo(0, compassR - 3);
+    ctx.lineTo(3.5, 0);
+    ctx.lineTo(-3.5, 0);
     ctx.closePath();
     ctx.fill();
 
-    // Chữ N
-    ctx.fillStyle = "#f43f5e";
-    ctx.font = "bold 9px sans-serif";
+    ctx.fillStyle = "#383838";
+    ctx.font = "bold 8px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("N", 0, -compassR - 3);
+    ctx.fillText("N", 0, -compassR - 2);
 
     ctx.restore();
   }, [
@@ -436,7 +394,6 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     const dx = clickX - cx;
     const dy = clickY - cy;
 
-    // Nghịch đảo phép xoay góc nhìn để lấy tọa độ thế giới chính xác tuyệt đối
     const cosA = Math.cos(viewAngleRad);
     const sinA = Math.sin(viewAngleRad);
     const unrotX = dx * cosA - dy * sinA;
@@ -459,159 +416,128 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     }
   };
 
-  const handleSaveMap = async () => {
-    setSaveStatus("Saving...");
-    try {
-      await fetch("/api/map/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ map_name: `amr_map_${Date.now()}` }),
-      });
-      setSaveStatus("Saved!");
-      setTimeout(() => setSaveStatus(null), 3000);
-    } catch {
-      setSaveStatus("Save failed");
-      setTimeout(() => setSaveStatus(null), 3000);
-    }
-  };
-
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 sm:p-4 flex flex-col h-full text-slate-800">
-      {/* Header Map */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200 mb-2.5">
+    <div className="border-2 border-charcoal bg-white rounded-[2px] shadow-[-4px_4px_0px_#383838] p-3 sm:p-4 flex flex-col h-full text-charcoal">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b-2 border-charcoal mb-2.5">
         <div className="flex items-center gap-2">
-          <Navigation className="w-4 h-4 text-brand-600" />
-          <h3 className="font-bold text-slate-900 text-xs sm:text-sm tracking-wide">
-            2D Autonomous Map
+          <Navigation className="w-4 h-4 text-charcoal" />
+          <h3 className="font-bold text-xs sm:text-sm tracking-wider">
+            MAP // 2D NAV
           </h3>
         </div>
 
-        {/* Navigation Status & Actions */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Navigation State & Controls */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {navState === "navigating" && goal ? (
-            <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-lg text-amber-700 text-xs animate-pulse">
+            <div className="flex items-center gap-1 bg-canary border border-charcoal px-2 py-0.5 font-bold text-xs shadow-[-2px_2px_0px_#383838]">
               <Target className="w-3.5 h-3.5" />
               <span>
-                Navigating to ({goal.x}m, {goal.y}m)
-                {distanceRemaining !== null && ` • ${distanceRemaining}m left`}
+                GOAL [{goal.x}, {goal.y}]
+                {distanceRemaining !== null && ` • ${distanceRemaining.toFixed(2)}m`}
               </span>
               <button
                 onClick={handleCancelNav}
-                className="ml-1 text-slate-400 hover:text-rose-600 transition"
-                title="Cancel navigation"
+                className="ml-1 text-charcoal hover:text-rose-600"
+                title="Cancel"
               >
                 <XCircle className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : navState === "reached" ? (
-            <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-300 px-2.5 py-1 rounded-lg text-emerald-700 text-xs">
+            <div className="flex items-center gap-1 bg-sketch-mint border border-charcoal px-2 py-0.5 font-bold text-xs">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Goal Reached!</span>
+              <span>REACHED</span>
             </div>
           ) : (
-            <span className="text-[11px] text-slate-500 hidden sm:inline">
-              {persistentObstaclesRef.current.size > 0
-                ? `${persistentObstaclesRef.current.size} map points recorded`
-                : "Localization ready"}
+            <span className="border border-charcoal bg-chalk px-2 py-0.5 text-[10px] font-bold text-graphite hidden sm:inline">
+              READY • {persistentObstaclesRef.current.size} PTS
             </span>
           )}
 
-          {/* Map Orientation Switcher */}
+          {/* Orientation Toggle */}
           <button
             onClick={() =>
               setMapMode((m) => (m === "north-up" ? "heading-up" : "north-up"))
             }
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition border ${
+            className={`border border-charcoal px-2 py-1 font-bold text-xs flex items-center gap-1 transition ${
               mapMode === "north-up"
-                ? "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"
-                : "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
+                ? "bg-white hover:bg-ice shadow-[-2px_2px_0px_#383838]"
+                : "bg-canary shadow-[-2px_2px_0px_#383838]"
             }`}
-            title="Toggle between Fixed Map (North-Up) and Robot Frame (Heading-Up)"
           >
             <Compass className="w-3.5 h-3.5" />
-            <span>
-              {mapMode === "north-up" ? "North-Up" : "Heading-Up"}
-            </span>
+            <span>{mapMode === "north-up" ? "NORTH-UP" : "HEADING"}</span>
           </button>
 
-          {/* Clear Map Memory */}
+          {/* Clear Map */}
           <button
             onClick={handleClearMap}
-            className="px-2.5 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-700 rounded-lg text-xs font-medium flex items-center gap-1.5 transition border border-slate-200"
-            title="Clear all recorded obstacle points from map memory"
+            className="border border-charcoal px-2 py-1 bg-white hover:bg-sketch-coral text-charcoal font-bold text-xs flex items-center gap-1 shadow-[-2px_2px_0px_#383838] transition"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>{clearStatus || "Clear Map"}</span>
+            <span>{clearStatus || "CLEAR"}</span>
           </button>
 
           {/* Save Map */}
           <button
             onClick={handleSaveMap}
-            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center gap-1.5 transition border border-slate-200"
+            className="border border-charcoal px-2 py-1 bg-sky hover:bg-sky-hover text-charcoal font-bold text-xs flex items-center gap-1 shadow-[-2px_2px_0px_#383838] transition"
           >
-            {saveStatus ? (
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            ) : (
-              <Save className="w-3.5 h-3.5" />
-            )}
-            {saveStatus || "Save Map"}
+            <Save className="w-3.5 h-3.5" />
+            <span>{saveStatus || "SAVE"}</span>
           </button>
         </div>
       </div>
 
-      {/* Map Canvas */}
-      <div className="relative flex-1 bg-slate-200 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center min-h-[420px]">
+      {/* Canvas Box */}
+      <div className="relative flex-1 bg-[#ece7e1] border-2 border-charcoal rounded-[2px] overflow-hidden flex items-center justify-center min-h-[420px]">
         <canvas
           ref={canvasRef}
           width={720}
           height={460}
           onClick={handleCanvasClick}
           className="w-full h-full cursor-crosshair object-cover"
-          title="Click anywhere on map to set navigation goal"
         />
 
-        {/* Bottom HUD bar */}
-        <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2.5 py-1 rounded-lg text-[11px] font-mono text-slate-700 border border-slate-200 shadow-sm flex items-center gap-3">
-          <span className="text-indigo-600 font-semibold">
-            Pose: ({robotX.toFixed(2)}m, {robotY.toFixed(2)}m)
+        {/* HUD bottom readout */}
+        <div className="absolute bottom-2 left-2 border border-charcoal bg-white/95 px-2.5 py-1 text-[11px] font-mono text-charcoal shadow-[-2px_2px_0px_#383838] flex items-center gap-3">
+          <span className="font-bold">
+            POS: [{robotX.toFixed(2)}, {robotY.toFixed(2)}]m
           </span>
-          <span className="text-slate-600">
-            Yaw: {((robotTheta * 180) / Math.PI).toFixed(0)}°
-          </span>
-          <span className="text-slate-500">
-            Mode: {mapMode === "north-up" ? "Fixed (0°)" : mapMode === "heading-up" ? "Heading" : `${customAngleDeg}°`}
+          <span>YAW: {((robotTheta * 180) / Math.PI).toFixed(0)}°</span>
+          <span className="text-graphite">
+            MODE: {mapMode === "north-up" ? "FIXED" : "HEADING"}
           </span>
           {goal && (
-            <span className="text-rose-600 font-semibold flex items-center gap-1">
-              <Target className="w-3 h-3" /> Goal: ({goal.x}m, {goal.y}m)
+            <span className="font-bold text-rose-600 flex items-center gap-1">
+              <Target className="w-3 h-3" /> [{goal.x}, {goal.y}]
             </span>
           )}
         </div>
 
-        {/* Zoom, Rotate, and Center Controls */}
-        <div className="absolute top-2 right-2 flex flex-col gap-1">
+        {/* Canvas Zoom & Follow Buttons */}
+        <div className="absolute top-2 right-2 flex flex-col gap-1.5">
           <button
             onClick={() => setMapScale((s) => Math.min(100, s + 10))}
-            className="p-1.5 bg-white/90 text-slate-700 rounded-lg hover:bg-slate-100 border border-slate-200 shadow-sm transition"
-            title="Zoom in (+)"
+            className="p-1.5 border border-charcoal bg-white hover:bg-ice shadow-[-2px_2px_0px_#383838] transition"
+            title="Zoom In"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setMapScale((s) => Math.max(20, s - 10))}
-            className="p-1.5 bg-white/90 text-slate-700 rounded-lg hover:bg-slate-100 border border-slate-200 shadow-sm transition"
-            title="Zoom out (-)"
+            className="p-1.5 border border-charcoal bg-white hover:bg-ice shadow-[-2px_2px_0px_#383838] transition"
+            title="Zoom Out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setFollowRobot((f) => !f)}
-            className={`p-1.5 rounded-lg border transition ${
-              followRobot
-                ? "bg-indigo-600 text-white border-indigo-500 shadow-sm"
-                : "bg-white/90 text-slate-700 hover:bg-slate-100 border border-slate-200 shadow-sm"
+            className={`p-1.5 border border-charcoal shadow-[-2px_2px_0px_#383838] transition ${
+              followRobot ? "bg-canary font-bold" : "bg-white hover:bg-ice"
             }`}
-            title={followRobot ? "Tắt tự động bám theo robot" : "Bật tự động bám theo robot"}
+            title="Follow Robot"
           >
             <Bot className="w-3.5 h-3.5" />
           </button>

@@ -1,0 +1,175 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp@latest"
+      ],
+      "autoApprove": [
+        "resolve-library-id",
+        "get-library-docs",
+        "query-docs"
+      ]
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--executablePath=/home/sonev/.cache/puppeteer/chrome/linux-153.0.8010.36/chrome-linux64/chrome",
+        "--chrome-arg=--no-sandbox",
+        "--chrome-arg=--disable-setuid-sandbox",
+        "--chrome-arg=--headless=new",
+        "--chrome-arg=--disable-gpu",
+        "--workspace=/home/sonev/amr_omni"
+      ],
+      "autoApprove": [
+        "click",
+        "fill",
+        "fill_form",
+        "hover",
+        "drag",
+        "press_key",
+        "handle_dialog",
+        "navigate_page",
+        "new_page",
+        "list_pages",
+        "select_page",
+        "close_page",
+        "wait_for",
+        "take_screenshot",
+        "take_snapshot",
+        "list_console_messages",
+        "list_network_requests",
+        "evaluate_script",
+        "lighthouse_audit",
+        "performance_start_trace",
+        "performance_stop_trace"
+      ]
+    },
+    "superpower": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "superpowers-mcp@latest"
+      ],
+      "autoApprove": [
+        "list_skills",
+        "run_skill",
+        "get_skill_info",
+        "find_skills"
+      ]
+    },
+    "ruflo": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "ruflo@latest",
+        "mcp",
+        "start"
+      ],
+      "autoApprove": [
+        "swarm_init",
+        "agent_spawn",
+        "task_delegate",
+        "task_status",
+        "memory_store",
+        "memory_retrieve",
+        "consensus_vote",
+        "swarm_status"
+      ]
+    },
+    "penpot": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@penpot/mcp@latest"
+      ],
+      "autoApprove": [
+        "list_projects",
+        "list_files",
+        "create_file",
+        "get_object_tree",
+        "search_object",
+        "get_rendered_component",
+        "execute_code",
+        "import_image",
+        "export_shape",
+        "create_comment_thread"
+      ]
+    },
+    "next-ai-drawio": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@next-ai-drawio/mcp-server@latest"
+      ],
+      "autoApprove": [
+        "start_session",
+        "create_new_diagram",
+        "load_diagram",
+        "edit_diagram",
+        "get_diagram",
+        "export_diagram"
+      ]
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github@latest"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+      },
+      "autoApprove": [
+        "search_repositories",
+        "get_file_contents",
+        "create_or_update_file",
+        "push_files",
+        "create_issue",
+        "create_pull_request",
+        "fork_repository",
+        "create_branch",
+        "list_issues",
+        "list_pull_requests"
+      ]
+    },
+    "office-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "office-mcp@latest"
+      ],
+      "autoApprove": [
+        "create_docx",
+        "read_docx",
+        "update_docx",
+        "create_xlsx",
+        "read_xlsx",
+        "update_xlsx",
+        "create_pptx",
+        "read_pptx",
+        "convert_document"
+      ]
+    },
+    "agentmemory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@agentmemory/mcp@latest"
+      ],
+      "autoApprove": [
+        "memory_context",
+        "memory_search",
+        "memory_read",
+        "memory_write",
+        "memory_delete",
+        "memory_scratchpad",
+        "memory_stats"
+      ]
+    }
+  }
+}
+

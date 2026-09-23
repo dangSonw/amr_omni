@@ -11,7 +11,7 @@ import { StreamMatrix } from "@/components/StreamMatrix";
 import { ImuQuaternionDisplay } from "@/components/charts/ImuQuaternionDisplay";
 import { ImuNineAxisChart } from "@/components/charts/ImuNineAxisChart";
 import { MotorSpeedChart } from "@/components/charts/MotorSpeedChart";
-import { DebugTelemetry } from "@/types/robot";
+import { Activity, Cpu, RotateCcw, ShieldAlert, Zap } from "lucide-react";
 
 const LINEAR_SPEED = 0.35; // m/s
 const ANGULAR_SPEED = 1.5; // rad/s
@@ -21,12 +21,12 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<NavTab>("cockpit");
 
   const status = telemetry?.status;
+  const odom = telemetry?.odom;
 
-  // Ref quản lý phím bấm và stream vận tốc toàn cục
   const activeKeysRef = useRef<Set<string>>(new Set());
   const streamIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [debugHistory, setDebugHistory] = useState<Array<{time: number; [key: string]: any}>>([]);
-  const debugHistoryRef = useRef<Array<{time: number; [key: string]: any}>>([]);
+  const [debugHistory, setDebugHistory] = useState<Array<{ time: number; [key: string]: any }>>([]);
+  const debugHistoryRef = useRef<Array<{ time: number; [key: string]: any }>>([]);
   const currentTwistRef = useRef<{ vx: number; vy: number; wz: number }>({
     vx: 0,
     vy: 0,
@@ -37,21 +37,20 @@ export default function DashboardPage() {
     if (!telemetry) return;
     const dbg = telemetry.debug;
     const now = Date.now();
-    
+
     const newPoint: any = { time: now };
-    
+
     for (let i = 0; i < 4; i++) {
       newPoint[`m${i}_raw`] = dbg?.raw_wheel_speed_rad_s?.[i] ?? telemetry.wheels?.measured_rad_s?.[i] ?? 0;
       newPoint[`m${i}_filtered`] = dbg?.filtered_wheel_speed_rad_s?.[i] ?? telemetry.wheels?.measured_rad_s?.[i] ?? 0;
       newPoint[`m${i}_target`] = dbg?.target_wheel_speed_rad_s?.[i] ?? telemetry.wheels?.target_rad_s?.[i] ?? 0;
     }
-    
+
     newPoint.qx = telemetry.imu?.qx ?? dbg?.imu_quaternion_xyzw?.[0] ?? 0;
     newPoint.qy = telemetry.imu?.qy ?? dbg?.imu_quaternion_xyzw?.[1] ?? 0;
     newPoint.qz = telemetry.imu?.qz ?? dbg?.imu_quaternion_xyzw?.[2] ?? 0;
     newPoint.qw = telemetry.imu?.qw ?? dbg?.imu_quaternion_xyzw?.[3] ?? 1;
 
-    // IMU 9-trục: Gia tốc tuyến tính (m/s²), Vận tốc góc (rad/s), Từ trường (µT)
     newPoint.accel_x = dbg?.imu_accel_xyz?.[0] ?? telemetry.imu?.accel_x ?? 0;
     newPoint.accel_y = dbg?.imu_accel_xyz?.[1] ?? telemetry.imu?.accel_y ?? 0;
     newPoint.accel_z = dbg?.imu_accel_xyz?.[2] ?? telemetry.imu?.accel_z ?? 9.81;
@@ -86,10 +85,10 @@ export default function DashboardPage() {
       let wz = 0;
       if (keys.has("w")) vx += LINEAR_SPEED;
       if (keys.has("s")) vx -= LINEAR_SPEED;
-      if (keys.has("a")) vy += LINEAR_SPEED; // Strafe Left
-      if (keys.has("d")) vy -= LINEAR_SPEED; // Strafe Right
-      if (keys.has("q")) wz += ANGULAR_SPEED; // Quay ngược chiều kim đồng hồ (CCW)
-      if (keys.has("e")) wz -= ANGULAR_SPEED; // Quay cùng chiều kim đồng hồ (CW)
+      if (keys.has("a")) vy += LINEAR_SPEED;
+      if (keys.has("d")) vy -= LINEAR_SPEED;
+      if (keys.has("q")) wz += ANGULAR_SPEED;
+      if (keys.has("e")) wz -= ANGULAR_SPEED;
       return { vx, vy, wz };
     };
 
@@ -127,7 +126,6 @@ export default function DashboardPage() {
           !streamIntervalRef.current &&
           (twist.vx !== 0 || twist.vy !== 0 || twist.wz !== 0)
         ) {
-          // Stream liên tục ở chu kỳ 80ms (12.5Hz) để không bị watchdog timeout 0.25s
           streamIntervalRef.current = setInterval(() => {
             const cur = currentTwistRef.current;
             sendCmdVel(cur.vx, cur.vy, cur.wz);
@@ -180,21 +178,21 @@ export default function DashboardPage() {
   }, [sendCmdVel]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+    <div className="flex min-h-screen flex-col bg-cream text-charcoal font-mono">
       {/* Top Header */}
       <Header status={status} />
 
-      {/* Main Body: Sidebar + Dynamic Workspace */}
+      {/* Main Body */}
       <div className="flex-1 flex flex-col md:flex-row w-full overflow-hidden">
-        {/* Sidebar Navigation */}
+        {/* Sidebar */}
         <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
 
-        {/* Center Content Workspace */}
+        {/* Workspace */}
         <main className="flex-1 p-3 sm:p-5 overflow-y-auto w-full">
-          {/* Tab 1: Trạm Điều Khiển Trung Tâm (Cockpit) */}
+          {/* TAB 1: COCKPIT */}
           {activeTab === "cockpit" && (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 w-full">
-              {/* Cột Trái (Bản Đồ 2D) */}
+              {/* Left Column: 2D Autonomous Map */}
               <div className="xl:col-span-7 2xl:col-span-8 flex flex-col gap-4">
                 <div className="min-h-[580px] flex-1">
                   <MapNavigation
@@ -205,27 +203,96 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Cột Phải (Camera Live Feed) */}
+              {/* Right Column: Camera + Quick Telemetry */}
               <div className="xl:col-span-5 2xl:col-span-4 flex flex-col gap-4">
-                {/* Camera Live Feed */}
                 <div className="h-[360px]">
                   <CameraFeed />
+                </div>
+
+                {/* Quick Telemetry Box */}
+                <div className="border-2 border-charcoal bg-white rounded-[2px] shadow-[-4px_4px_0px_#383838] p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b-2 border-charcoal pb-2 font-mono">
+                    <div className="flex items-center gap-1.5 font-bold text-xs tracking-wider">
+                      <Activity className="h-4 w-4" />
+                      <span>TELEMETRY // LIVE</span>
+                    </div>
+                    <button
+                      onClick={resetOdom}
+                      className="flex items-center gap-1 px-2 py-0.5 border border-charcoal bg-sky hover:bg-sky-hover text-charcoal font-bold text-[10px] shadow-[-1px_1px_0px_#383838] transition"
+                      title="Reset Odometry"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      RESET ODOM
+                    </button>
+                  </div>
+
+                  {/* Velocity metrics */}
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="border border-charcoal bg-chalk p-1.5">
+                      <div className="text-[10px] text-graphite font-bold">VX</div>
+                      <div className="font-bold text-charcoal mt-0.5">
+                        {odom ? `${odom.vx.toFixed(2)} m/s` : "--"}
+                      </div>
+                    </div>
+                    <div className="border border-charcoal bg-chalk p-1.5">
+                      <div className="text-[10px] text-graphite font-bold">VY</div>
+                      <div className="font-bold text-charcoal mt-0.5">
+                        {odom ? `${odom.vy.toFixed(2)} m/s` : "--"}
+                      </div>
+                    </div>
+                    <div className="border border-charcoal bg-chalk p-1.5">
+                      <div className="text-[10px] text-graphite font-bold">WZ</div>
+                      <div className="font-bold text-charcoal mt-0.5">
+                        {odom ? `${odom.wz.toFixed(2)} rad/s` : "--"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System Health */}
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs pt-1">
+                    <div className="border border-charcoal bg-chalk p-1.5">
+                      <div className="text-[10px] text-graphite font-bold flex items-center justify-center gap-0.5">
+                        <Cpu className="h-3 w-3" /> CPU
+                      </div>
+                      <div className="font-bold text-charcoal mt-0.5">
+                        {status ? `${status.cpu_percent.toFixed(0)}%` : "--"}
+                      </div>
+                    </div>
+                    <div className="border border-charcoal bg-chalk p-1.5">
+                      <div className="text-[10px] text-graphite font-bold">RAM</div>
+                      <div className="font-bold text-charcoal mt-0.5">
+                        {status ? `${status.ram_percent.toFixed(0)}%` : "--"}
+                      </div>
+                    </div>
+                    <div className="border border-charcoal bg-chalk p-1.5">
+                      <div className="text-[10px] text-graphite font-bold flex items-center justify-center gap-0.5">
+                        <ShieldAlert className="h-3 w-3" /> E-STOP
+                      </div>
+                      <div
+                        className={`font-bold mt-0.5 text-[11px] ${
+                          status?.estop_active ? "text-rose-600" : "text-emerald-700"
+                        }`}
+                      >
+                        {status?.estop_active ? "ACTIVE" : "READY"}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Tab 2: Cấu Hình Tham Số (Settings) */}
+          {/* TAB 2: CONFIG */}
           {activeTab === "config" && (
             <div className="w-full">
               <ConfigPanel />
             </div>
           )}
 
-          {/* Tab 3: Giám Sát Luồng Giao Tiếp & Telemetry Gỡ Lỗi STM32 (Monitor) */}
+          {/* TAB 3: MONITOR */}
           {activeTab === "debug" && (
-            <div className="flex flex-col gap-5 w-full">
-              {/* Hàng 1: Dữ Liệu Định Hướng Quaternion 9-DoF & Telemetry Cảm Biến IMU 9 Trục */}
+            <div className="flex flex-col gap-4 w-full">
+              {/* IMU Row */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 w-full">
                 <div className="xl:col-span-1">
                   <ImuQuaternionDisplay
@@ -243,10 +310,10 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Hàng 2: Vận Tốc 4 Bánh Xe Trước & Sau Lọc Kalman từ topic debug/data */}
+              {/* Wheel Velocity Chart */}
               <MotorSpeedChart data={debugHistory} debug={telemetry?.debug} />
 
-              {/* Hàng 3: Ma Trận Giám Sát Tất Cả 22 Luồng Giao Tiếp Hệ Thống Nguồn -> Đích */}
+              {/* Stream Audit Matrix */}
               <StreamMatrix streams={telemetry?.streams} />
             </div>
           )}

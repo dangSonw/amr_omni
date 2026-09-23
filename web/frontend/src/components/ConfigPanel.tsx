@@ -5,10 +5,10 @@ import { RobotConfig } from "@/types/robot";
 import { Check, Copy, RefreshCw, Save, Settings2, ShieldCheck, Zap } from "lucide-react";
 
 const MOTOR_LABELS = [
-  { id: 0, code: "M1", name: "Trước Phải (FR)", loc: "Front-Right" },
-  { id: 1, code: "M2", name: "Trước Trái (FL)", loc: "Front-Left" },
-  { id: 2, code: "M3", name: "Sau Trái (RL)", loc: "Rear-Left" },
-  { id: 3, code: "M4", name: "Sau Phải (RR)", loc: "Rear-Right" },
+  { id: 0, code: "M1", loc: "FR", name: "Front-Right" },
+  { id: 1, code: "M2", loc: "FL", name: "Front-Left" },
+  { id: 2, code: "M3", loc: "RL", name: "Rear-Left" },
+  { id: 3, code: "M4", loc: "RR", name: "Rear-Right" },
 ];
 
 export function ConfigPanel() {
@@ -46,7 +46,6 @@ export function ConfigPanel() {
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
-  // Tải cấu hình hiện tại từ backend API
   useEffect(() => {
     const fetchConfig = async () => {
       try {
@@ -63,7 +62,7 @@ export function ConfigPanel() {
           });
         }
       } catch (err) {
-        console.error("Lỗi khi tải cấu hình:", err);
+        console.error("Config fetch error:", err);
       }
     };
     fetchConfig();
@@ -84,7 +83,7 @@ export function ConfigPanel() {
         setTimeout(() => setSavedSuccess(false), 2500);
       }
     } catch (err) {
-      console.error("Lỗi khi lưu cấu hình:", err);
+      console.error("Config save error:", err);
     } finally {
       setSaving(false);
     }
@@ -97,7 +96,6 @@ export function ConfigPanel() {
     }));
   };
 
-  // Xử lý thay đổi PID từng động cơ
   const handleMotorPidChange = (
     motorIdx: number,
     param: "kp" | "ki" | "kd",
@@ -111,7 +109,6 @@ export function ConfigPanel() {
     setConfig((prev) => ({ ...prev, [key]: updated }));
   };
 
-  // Xử lý thay đổi Kalman từng bánh xe
   const handleKalmanChange = (
     wheelIdx: number,
     param: "q" | "r",
@@ -125,7 +122,6 @@ export function ConfigPanel() {
     setConfig((prev) => ({ ...prev, [key]: updated }));
   };
 
-  // Thao tác nhanh: Đặt tất cả PID về Passthrough (Kp=1.0, Ki=0.0, Kd=0.0)
   const setAllPidPassthrough = () => {
     setConfig((prev) => ({
       ...prev,
@@ -135,7 +131,6 @@ export function ConfigPanel() {
     }));
   };
 
-  // Thao tác nhanh: Sao chép PID Động cơ 1 sang 2, 3, 4
   const copyMotor1PidToAll = () => {
     const kp0 = getArray4(config.motor_kp, 1.0)[0];
     const ki0 = getArray4(config.motor_ki, 0.0)[0];
@@ -148,7 +143,6 @@ export function ConfigPanel() {
     }));
   };
 
-  // Thao tác nhanh: Đặt tất cả Kalman về Mặc định (Q=0.5, R=0.04)
   const setAllKalmanDefault = () => {
     setConfig((prev) => ({
       ...prev,
@@ -157,7 +151,6 @@ export function ConfigPanel() {
     }));
   };
 
-  // Thao tác nhanh: Sao chép Kalman Bánh xe 1 sang 2, 3, 4
   const copyWheel1KalmanToAll = () => {
     const q0 = getArray4(config.kalman_q, 0.5)[0];
     const r0 = getArray4(config.kalman_r, 0.04)[0];
@@ -175,144 +168,142 @@ export function ConfigPanel() {
   const rArray = getArray4(config.kalman_r, 0.04);
 
   return (
-    <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-6 text-slate-800 shadow-sm w-full space-y-6">
+    <div className="border-2 border-charcoal bg-white rounded-[2px] shadow-[-4px_4px_0px_#383838] p-5 text-charcoal w-full space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between pb-4 border-b border-slate-100 gap-2">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-lg bg-blue-50 text-blue-600 border border-blue-100">
-            <Settings2 className="h-5 w-5" />
-          </div>
+      <div className="flex flex-wrap items-center justify-between pb-3 border-b-2 border-charcoal gap-2">
+        <div className="flex items-center gap-2">
+          <Settings2 className="h-5 w-5 text-charcoal" />
           <div>
-            <h2 className="text-base font-bold text-slate-900">
-              Cấu Hình Tham Số Robot, 4 Bộ PID Động Cơ & 4 Bộ Lọc Kalman Bánh Xe
+            <h2 className="text-sm sm:text-base font-bold tracking-wider">
+              CONFIG // PARAMETERS & PID
             </h2>
-            <p className="text-xs text-slate-500">
-              Đồng bộ hai chiều qua topic ROS 2 <code className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded">config/cmd</code> tới Firmware STM32 và mô phỏng Gazebo
+            <p className="text-[11px] text-graphite font-mono">
+              SYNC // TOPIC: /config/cmd (STM32 & GAZEBO)
             </p>
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleSave} className="space-y-6 text-xs">
+      <form onSubmit={handleSave} className="space-y-6 text-xs font-mono">
         {/* Section 1: Chassis Geometry & Kinematics */}
-        <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 uppercase tracking-wider text-xs flex items-center gap-1.5">
-              1. Kích Thước Khung Gầm & Giới Hạn Vận Tốc
+        <div className="border border-charcoal bg-chalk p-4 rounded-[2px] space-y-3 shadow-[-2px_2px_0px_#383838]">
+          <div className="flex items-center justify-between border-b border-charcoal pb-2">
+            <h3 className="font-bold uppercase tracking-wider text-xs flex items-center gap-1.5 text-charcoal">
+              01 // KINEMATICS & LIMITS
             </h3>
-            <span className="text-[11px] text-slate-500 font-normal">Kinematics & Safety Limits</span>
+            <span className="text-[10px] text-graphite">BASE GEOMETRY</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Bán kính bánh xe Wheel Radius (m)
+              <label className="block text-graphite font-bold mb-1">
+                WHEEL RADIUS (m)
               </label>
               <input
                 type="number"
                 step="0.001"
                 value={config.wheel_radius_m}
                 onChange={(e) => handleChange("wheel_radius_m", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                className="w-full border border-charcoal bg-white px-2.5 py-1.5 text-charcoal font-mono rounded-[2px] focus:bg-notebook focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Chiều dài cơ sở Wheelbase (m)
+              <label className="block text-graphite font-bold mb-1">
+                WHEELBASE (m)
               </label>
               <input
                 type="number"
                 step="0.001"
                 value={config.wheelbase_m}
                 onChange={(e) => handleChange("wheelbase_m", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                className="w-full border border-charcoal bg-white px-2.5 py-1.5 text-charcoal font-mono rounded-[2px] focus:bg-notebook focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Độ rộng vệt bánh Track Width (m)
+              <label className="block text-graphite font-bold mb-1">
+                TRACK WIDTH (m)
               </label>
               <input
                 type="number"
                 step="0.001"
                 value={config.track_width_m}
                 onChange={(e) => handleChange("track_width_m", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                className="w-full border border-charcoal bg-white px-2.5 py-1.5 text-charcoal font-mono rounded-[2px] focus:bg-notebook focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Vận tốc dài tối đa Max Linear Speed (m/s)
+              <label className="block text-graphite font-bold mb-1">
+                MAX LINEAR (m/s)
               </label>
               <input
                 type="number"
                 step="0.02"
                 value={config.max_linear_speed_mps}
                 onChange={(e) => handleChange("max_linear_speed_mps", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                className="w-full border border-charcoal bg-white px-2.5 py-1.5 text-charcoal font-mono rounded-[2px] focus:bg-notebook focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Vận tốc góc tối đa Max Angular Speed (rad/s)
+              <label className="block text-graphite font-bold mb-1">
+                MAX ANGULAR (rad/s)
               </label>
               <input
                 type="number"
                 step="0.1"
                 value={config.max_angular_speed_rad_s}
                 onChange={(e) => handleChange("max_angular_speed_rad_s", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                className="w-full border border-charcoal bg-white px-2.5 py-1.5 text-charcoal font-mono rounded-[2px] focus:bg-notebook focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-slate-600 font-medium mb-1">
-                Thời gian Watchdog ngắt an toàn (s)
+              <label className="block text-graphite font-bold mb-1">
+                WATCHDOG TIMEOUT (s)
               </label>
               <input
                 type="number"
                 step="0.05"
                 value={config.command_timeout_sec}
                 onChange={(e) => handleChange("command_timeout_sec", e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                className="w-full border border-charcoal bg-white px-2.5 py-1.5 text-charcoal font-mono rounded-[2px] focus:bg-notebook focus:outline-none"
               />
             </div>
           </div>
         </div>
 
-        {/* Section 2: 4 Individual Motor Velocity PID Controllers */}
-        <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Section 2: 4 Motor PID Controllers */}
+        <div className="border border-charcoal bg-chalk p-4 rounded-[2px] space-y-4 shadow-[-2px_2px_0px_#383838]">
+          <div className="flex flex-wrap items-center justify-between border-b border-charcoal pb-2 gap-2">
             <div>
-              <h3 className="font-bold text-slate-900 uppercase tracking-wider text-xs flex items-center gap-1.5">
-                <Zap className="h-4 w-4 text-amber-500" />
-                2. Cài Đặt 4 Bộ Điều Khiển PID Vận Tốc Cho 4 Động Cơ Riêng Biệt
+              <h3 className="font-bold uppercase tracking-wider text-xs flex items-center gap-1.5 text-charcoal">
+                <Zap className="h-4 w-4 text-duck-orange" />
+                02 // MOTOR PID (M1–M4)
               </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Mặc định: <code className="bg-slate-200/70 px-1 py-0.5 rounded font-mono text-slate-800">Kp=1.0, Ki=0.0, Kd=0.0</code> (Chế độ Passthrough tạm thời tắt PID, chuyển tiếp lệnh điều khiển trực tiếp tới actuator)
+              <p className="text-[10px] text-graphite mt-0.5">
+                DEFAULT: PASSTHROUGH (Kp=1.0, Ki=0.0, Kd=0.0)
               </p>
             </div>
-            {/* Quick Actions */}
+            {/* Action Buttons */}
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={setAllPidPassthrough}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-medium transition shadow-xs"
+                className="flex items-center gap-1 px-2.5 py-1 border border-charcoal bg-white hover:bg-ice text-charcoal font-bold text-[11px] shadow-[-2px_2px_0px_#383838] transition"
               >
-                <RefreshCw className="h-3 w-3 text-slate-500" />
-                Đặt 4 Động Cơ về Passthrough
+                <RefreshCw className="h-3 w-3" />
+                RESET PASSTHROUGH
               </button>
               <button
                 type="button"
                 onClick={copyMotor1PidToAll}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-medium transition shadow-xs"
+                className="flex items-center gap-1 px-2.5 py-1 border border-charcoal bg-sky hover:bg-sky-hover text-charcoal font-bold text-[11px] shadow-[-2px_2px_0px_#383838] transition"
               >
-                <Copy className="h-3 w-3 text-blue-500" />
-                Sao Chép Động Cơ 1 Sang 2, 3, 4
+                <Copy className="h-3 w-3" />
+                COPY M1 TO ALL
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             {MOTOR_LABELS.map((m) => {
               const isPassthrough =
                 Math.abs(kpArray[m.id] - 1.0) < 1e-4 &&
@@ -322,59 +313,56 @@ export function ConfigPanel() {
               return (
                 <div
                   key={m.id}
-                  className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2.5"
+                  className="p-3 bg-white border border-charcoal shadow-[-2px_2px_0px_#383838] space-y-2"
                 >
-                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-                    <div>
-                      <span className="font-bold text-slate-800 text-xs">{m.code} - {m.name}</span>
-                      <span className="block text-[10px] text-slate-400 font-mono">{m.loc}</span>
-                    </div>
-                    {isPassthrough ? (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700">
-                        Passthrough
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700">
-                        PID Vòng Kín
-                      </span>
-                    )}
+                  <div className="flex items-center justify-between pb-1 border-b border-charcoal">
+                    <span className="font-bold text-xs">{m.code} ({m.loc})</span>
+                    <span
+                      className={`px-1.5 py-0.5 text-[9px] font-bold border border-charcoal ${
+                        isPassthrough
+                          ? "bg-canary text-charcoal"
+                          : "bg-sketch-mint text-charcoal"
+                      }`}
+                    >
+                      {isPassthrough ? "PASSTHROUGH" : "CLOSED-LOOP"}
+                    </span>
                   </div>
 
-                  <div className="space-y-2 font-mono">
+                  <div className="space-y-1.5 font-mono text-[11px]">
                     <div>
-                      <label className="block text-slate-500 font-sans text-[11px] mb-0.5">
-                        Hệ số tỉ lệ Kp:
+                      <label className="block text-graphite text-[10px] mb-0.5 font-bold">
+                        Kp:
                       </label>
                       <input
                         type="number"
                         step="0.01"
                         value={kpArray[m.id]}
                         onChange={(e) => handleMotorPidChange(m.id, "kp", e.target.value)}
-                        className="w-full rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                        className="w-full border border-charcoal bg-chalk px-2 py-1 text-charcoal focus:bg-notebook focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-500 font-sans text-[11px] mb-0.5">
-                        Hệ số tích phân Ki:
+                      <label className="block text-graphite text-[10px] mb-0.5 font-bold">
+                        Ki:
                       </label>
                       <input
                         type="number"
                         step="0.01"
                         value={kiArray[m.id]}
                         onChange={(e) => handleMotorPidChange(m.id, "ki", e.target.value)}
-                        className="w-full rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                        className="w-full border border-charcoal bg-chalk px-2 py-1 text-charcoal focus:bg-notebook focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-500 font-sans text-[11px] mb-0.5">
-                        Hệ số vi phân Kd:
+                      <label className="block text-graphite text-[10px] mb-0.5 font-bold">
+                        Kd:
                       </label>
                       <input
                         type="number"
                         step="0.0001"
                         value={kdArray[m.id]}
                         onChange={(e) => handleMotorPidChange(m.id, "kd", e.target.value)}
-                        className="w-full rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                        className="w-full border border-charcoal bg-chalk px-2 py-1 text-charcoal focus:bg-notebook focus:outline-none"
                       />
                     </div>
                   </div>
@@ -384,16 +372,16 @@ export function ConfigPanel() {
           </div>
         </div>
 
-        {/* Section 3: 4 Individual Wheel Velocity Scalar Kalman Filters */}
-        <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Section 3: 4 Kalman Filters */}
+        <div className="border border-charcoal bg-chalk p-4 rounded-[2px] space-y-4 shadow-[-2px_2px_0px_#383838]">
+          <div className="flex flex-wrap items-center justify-between border-b border-charcoal pb-2 gap-2">
             <div>
-              <h3 className="font-bold text-slate-900 uppercase tracking-wider text-xs flex items-center gap-1.5">
-                <ShieldCheck className="h-4 w-4 text-blue-500" />
-                3. Cài Đặt 4 Bộ Lọc Nhiễu Vận Tốc Kalman Cho 4 Bánh Xe Riêng Biệt
+              <h3 className="font-bold uppercase tracking-wider text-xs flex items-center gap-1.5 text-charcoal">
+                <ShieldCheck className="h-4 w-4 text-sky" />
+                03 // WHEEL KALMAN (W1–W4)
               </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Mặc định: <code className="bg-slate-200/70 px-1 py-0.5 rounded font-mono text-slate-800">Q = 0.5, R = 0.04</code> (Lọc nhiễu đo lường encoder bánh xe trước khi đưa vào Odometry và Odometry EKF)
+              <p className="text-[10px] text-graphite mt-0.5">
+                DEFAULT: Q = 0.50, R = 0.04
               </p>
             </div>
             {/* Quick Actions */}
@@ -401,61 +389,58 @@ export function ConfigPanel() {
               <button
                 type="button"
                 onClick={setAllKalmanDefault}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-medium transition shadow-xs"
+                className="flex items-center gap-1 px-2.5 py-1 border border-charcoal bg-white hover:bg-ice text-charcoal font-bold text-[11px] shadow-[-2px_2px_0px_#383838] transition"
               >
-                <RefreshCw className="h-3 w-3 text-slate-500" />
-                Đặt 4 Bánh về Mặc Định (0.5, 0.04)
+                <RefreshCw className="h-3 w-3" />
+                RESET DEFAULTS
               </button>
               <button
                 type="button"
                 onClick={copyWheel1KalmanToAll}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-medium transition shadow-xs"
+                className="flex items-center gap-1 px-2.5 py-1 border border-charcoal bg-sky hover:bg-sky-hover text-charcoal font-bold text-[11px] shadow-[-2px_2px_0px_#383838] transition"
               >
-                <Copy className="h-3 w-3 text-blue-500" />
-                Sao Chép Bánh 1 Sang 2, 3, 4
+                <Copy className="h-3 w-3" />
+                COPY W1 TO ALL
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             {MOTOR_LABELS.map((m) => (
               <div
                 key={m.id}
-                className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2.5"
+                className="p-3 bg-white border border-charcoal shadow-[-2px_2px_0px_#383838] space-y-2"
               >
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-                  <div>
-                    <span className="font-bold text-slate-800 text-xs">Bánh {m.id + 1} - {m.name}</span>
-                    <span className="block text-[10px] text-slate-400 font-mono">Wheel Filter {m.id + 1}</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-100 text-sky-700">
-                    Scalar Kalman
+                <div className="flex items-center justify-between pb-1 border-b border-charcoal">
+                  <span className="font-bold text-xs">W{m.id + 1} ({m.loc})</span>
+                  <span className="px-1.5 py-0.5 text-[9px] font-bold border border-charcoal bg-chalk text-charcoal">
+                    SCALAR
                   </span>
                 </div>
 
-                <div className="space-y-2 font-mono">
+                <div className="space-y-1.5 font-mono text-[11px]">
                   <div>
-                    <label className="block text-slate-500 font-sans text-[11px] mb-0.5">
-                      Nhiễu quá trình Q (Process Noise):
+                    <label className="block text-graphite text-[10px] mb-0.5 font-bold">
+                      Q (PROCESS):
                     </label>
                     <input
                       type="number"
                       step="0.01"
                       value={qArray[m.id]}
                       onChange={(e) => handleKalmanChange(m.id, "q", e.target.value)}
-                      className="w-full rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                      className="w-full border border-charcoal bg-chalk px-2 py-1 text-charcoal focus:bg-notebook focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 font-sans text-[11px] mb-0.5">
-                      Nhiễu đo lường R (Measurement Noise):
+                    <label className="block text-graphite text-[10px] mb-0.5 font-bold">
+                      R (MEASUREMENT):
                     </label>
                     <input
                       type="number"
                       step="0.001"
                       value={rArray[m.id]}
                       onChange={(e) => handleKalmanChange(m.id, "r", e.target.value)}
-                      className="w-full rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                      className="w-full border border-charcoal bg-chalk px-2 py-1 text-charcoal focus:bg-notebook focus:outline-none"
                     />
                   </div>
                 </div>
@@ -464,20 +449,20 @@ export function ConfigPanel() {
           </div>
         </div>
 
-        {/* Buttons */}
+        {/* Footer Actions */}
         <div className="flex items-center justify-end gap-3 pt-2">
           {savedSuccess && (
-            <span className="flex items-center gap-1.5 font-semibold text-emerald-600 text-xs">
-              <Check className="h-4 w-4" /> Đã lưu và truyền tham số tới STM32 (config/cmd) thành công!
+            <span className="flex items-center gap-1 font-bold text-charcoal bg-canary border border-charcoal px-2.5 py-1 text-xs shadow-[-2px_2px_0px_#383838]">
+              <Check className="h-3.5 w-3.5" /> SAVED & SYNCED (/config/cmd)
             </span>
           )}
           <button
             type="submit"
             disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 font-semibold text-white hover:bg-blue-700 transition active:scale-95 disabled:opacity-50 shadow-sm"
+            className="flex items-center gap-2 border-2 border-charcoal bg-sky hover:bg-sky-hover px-6 py-2 font-bold text-charcoal shadow-[-4px_4px_0px_#383838] transition active:translate-x-[2px] active:translate-y-[-2px] active:shadow-none disabled:opacity-50 text-xs tracking-wider"
           >
             <Save className="h-4 w-4" />
-            <span>{saving ? "Đang lưu..." : "Áp Dụng Cấu Hình & Gửi STM32"}</span>
+            <span>{saving ? "SAVING..." : "SAVE CONFIG"}</span>
           </button>
         </div>
       </form>

@@ -17,9 +17,11 @@ static const uint32_t kImuPeriodMs = 20U;
 static const uint32_t kOdometryPeriodMs = 10U;
 static const uint32_t kTelemetryPeriodMs = 50U;
 static const uint32_t kEncoderCountsPerRevolution = 2048U;
-static const float kDefaultMotorKp = 0.08F;
-static const float kDefaultMotorKi = 0.25F;
-static const float kDefaultMotorKd = 0.0005F;
+static const float kDefaultMotorKp = 1.0F;
+static const float kDefaultMotorKi = 0.0F;
+static const float kDefaultMotorKd = 0.0F;
+static const float kDefaultKalmanQ = 0.5F;
+static const float kDefaultKalmanR = 0.04F;
 
 struct FirmwareSettings {
     float wheel_radius_m;
@@ -27,9 +29,11 @@ struct FirmwareSettings {
     float track_width_m;
     float max_wheel_speed_rad_s;
     uint32_t command_timeout_ms;
-    float motor_kp;
-    float motor_ki;
-    float motor_kd;
+    float motor_kp[kWheelCount];
+    float motor_ki[kWheelCount];
+    float motor_kd[kWheelCount];
+    float kalman_q[kWheelCount];
+    float kalman_r[kWheelCount];
 };
 
 struct TwistCommand {
@@ -41,6 +45,7 @@ struct TwistCommand {
 struct ImuSample {
     float linear_accel_mps2[3];
     float gyro_rad_s[3];
+    float mag_uT[3];
     float quaternion_xyzw[4];
     float accuracy_rad;
     bool valid;

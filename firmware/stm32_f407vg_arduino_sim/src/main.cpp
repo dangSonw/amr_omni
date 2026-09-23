@@ -26,6 +26,7 @@
 #include "hardware.h"
 #include "kalman.h"
 #include "kinematics.h"
+#include "pid.h"
 #include "robot_state.h"
 
 namespace {
@@ -45,6 +46,7 @@ rclc_executor_t ros_executor;
 
 rcl_subscription_t cmd_vel_subscriber;
 rcl_subscription_t estop_subscriber;
+rcl_subscription_t config_subscriber;
 rcl_publisher_t odometry_publisher;
 rcl_publisher_t imu_publisher;
 rcl_publisher_t status_publisher;
@@ -52,6 +54,7 @@ rcl_publisher_t debug_publisher;
 
 geometry_msgs__msg__Twist cmd_vel_message;
 std_msgs__msg__Bool estop_message;
+std_msgs__msg__String config_message;
 nav_msgs__msg__Odometry odometry_message;
 sensor_msgs__msg__Imu imu_message;
 std_msgs__msg__String status_message;
@@ -61,7 +64,8 @@ char odometry_frame_storage[16];
 char odometry_child_frame_storage[16];
 char imu_frame_storage[16];
 char status_storage[kStatusMessageCapacity];
-char debug_storage[384];
+char config_storage[256];
+char debug_storage[600];
 
 enum RosInitFlag : uint16_t {
     kInitSupport    = 1U << 0U,
@@ -73,8 +77,23 @@ enum RosInitFlag : uint16_t {
     kInitStatusPub  = 1U << 6U,
     kInitDebugPub   = 1U << 7U,
     kInitExecutor   = 1U << 8U,
+    kInitConfigSub  = 1U << 9U,
 };
 uint16_t ros_init_flags = 0U;
+
+SimplePid wheel_pids[kWheelCount] = {
+    SimplePid(kDefaultMotorKp, kDefaultMotorKi, kDefaultMotorKd),
+    SimplePid(kDefaultMotorKp, kDefaultMotorKi, kDefaultMotorKd),
+    SimplePid(kDefaultMotorKp, kDefaultMotorKi, kDefaultMotorKd),
+    SimplePid(kDefaultMotorKp, kDefaultMotorKi, kDefaultMotorKd),
+};
+
+ScalarKalman wheel_filters[kWheelCount] = {
+    ScalarKalman(kDefaultKalmanQ, kDefaultKalmanR),
+    ScalarKalman(kDefaultKalmanQ, kDefaultKalmanR),
+    ScalarKalman(kDefaultKalmanQ, kDefaultKalmanR),
+    ScalarKalman(kDefaultKalmanQ, kDefaultKalmanR),
+};
 
 EncoderPll wheel_pll[kWheelCount] = {
     EncoderPll(20.0F, kEncoderCountsPerRevolution),
@@ -239,9 +258,68 @@ void estop_callback(const void *message) {
     update_safety_fields(received->data, state.motor_fault, false);
 }
 
+void parse_float_array(const char *json, const char *key, float out[kWheelCount]) {
+    const char *pos = strstr(json, key);
+    if (pos == nullptr) return;
+    pos = strchr(pos, ':');
+    if (pos == nullptr) return;
+    pos++;
+    while (*pos == ' ') pos++;
+    if (*pos == '[') {
+        pos++;
+        for (uint8_t i = 0; i < kWheelCount; ++i) {
+            char *end = nullptr;
+            float val = strtof(pos, &end);
+            if (end == pos) break;
+            out[i] = val;
+            pos = end;
+            while (*pos == ' ' || *pos == ',') pos++;
+            if (*pos == ']') break;
+        }
+    } else {
+        char *end = nullptr;
+        float val = strtof(pos, &end);
+        if (end != pos) {
+            for (uint8_t i = 0; i < kWheelCount; ++i) {
+                out[i] = val;
+            }
+        }
+    }
+}
+
+void config_callback(const void *message) {
+    const std_msgs__msg__String *received =
+        static_cast<const std_msgs__msg__String *>(message);
+    if (received == nullptr || received->data.data == nullptr) return;
+    const char *str = received->data.data;
+
+    RobotState state;
+    if (!copy_state(state)) return;
+
+    parse_float_array(str, "\"motor_kp\"", state.settings.motor_kp);
+    parse_float_array(str, "\"motor_ki\"", state.settings.motor_ki);
+    parse_float_array(str, "\"motor_kd\"", state.settings.motor_kd);
+    parse_float_array(str, "\"kalman_q\"", state.settings.kalman_q);
+    parse_float_array(str, "\"kalman_r\"", state.settings.kalman_r);
+
+    for (uint8_t i = 0; i < kWheelCount; ++i) {
+        wheel_pids[i].set_tunings(state.settings.motor_kp[i],
+                                  state.settings.motor_ki[i],
+                                  state.settings.motor_kd[i]);
+        wheel_filters[i].set_noise(state.settings.kalman_q[i],
+                                   state.settings.kalman_r[i]);
+    }
+
+    if (state_mutex != nullptr && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(5U)) == pdTRUE) {
+        robot_state.settings = state.settings;
+        xSemaphoreGive(state_mutex);
+    }
+}
+
 bool initialize_ros_message_memory() {
     memset(&cmd_vel_message, 0, sizeof(cmd_vel_message));
     memset(&estop_message, 0, sizeof(estop_message));
+    memset(&config_message, 0, sizeof(config_message));
     memset(&odometry_message, 0, sizeof(odometry_message));
     memset(&imu_message, 0, sizeof(imu_message));
     for (uint8_t i = 0U; i < 9U; ++i) {
@@ -268,6 +346,7 @@ bool initialize_ros_message_memory() {
                sizeof(imu_frame_storage), "imu_link");
     set_string(status_message.data, status_storage, sizeof(status_storage),
                "starting");
+    set_string(config_message.data, config_storage, sizeof(config_storage), "{}");
     return true;
 }
 
@@ -302,6 +381,9 @@ bool initialize_ros_entities() {
                     "stm32_cmd_vel", kInitCmdVelSub);
     INIT_SUBSCRIBER(estop_subscriber,
                     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool), "estop", kInitEstopSub);
+    INIT_SUBSCRIBER(config_subscriber,
+                    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
+                    "config/cmd", kInitConfigSub);
     INIT_PUBLISHER(odometry_publisher,
                    ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
                    "wheel/odom", kInitOdomPub);
@@ -317,7 +399,7 @@ bool initialize_ros_entities() {
 #undef INIT_PUBLISHER
 #undef INIT_SUBSCRIBER
     
-    if (rclc_executor_init(&ros_executor, &ros_support.context, 2U,
+    if (rclc_executor_init(&ros_executor, &ros_support.context, 3U,
                            &ros_allocator) != RCL_RET_OK) {
         return false;
     }
@@ -328,6 +410,9 @@ bool initialize_ros_entities() {
                                        ON_NEW_DATA) != RCL_RET_OK ||
         rclc_executor_add_subscription(&ros_executor, &estop_subscriber,
                                        &estop_message, &estop_callback,
+                                       ON_NEW_DATA) != RCL_RET_OK ||
+        rclc_executor_add_subscription(&ros_executor, &config_subscriber,
+                                       &config_message, &config_callback,
                                        ON_NEW_DATA) != RCL_RET_OK) {
         return false;
     }
@@ -394,18 +479,24 @@ void publish_telemetry(const RobotState &state) {
     publish_message(status_publisher, &status_message);
 
     snprintf(debug_storage, sizeof(debug_storage),
-        "{\"raw_ws\":[%.3f,%.3f,%.3f,%.3f],"
-        "\"filt_ws\":[%.3f,%.3f,%.3f,%.3f],"
-        "\"tgt_ws\":[%.3f,%.3f,%.3f,%.3f],"
-        "\"mot_out\":[%.3f,%.3f,%.3f,%.3f],"
-        "\"imu_q\":[%.3f,%.3f,%.3f,%.3f],"
-        "\"body_v\":[%.3f,%.3f,%.3f],"
-        "\"cmd_v\":[%.3f,%.3f,%.3f]}",
+        "{\"imu_accel_xyz\":[%.3f,%.3f,%.3f],"
+        "\"imu_gyro_xyz\":[%.3f,%.3f,%.3f],"
+        "\"imu_mag_xyz\":[%.3f,%.3f,%.3f],"
+        "\"imu_quaternion_xyzw\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"raw_wheel_speed_rad_s\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"filtered_wheel_speed_rad_s\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"target_wheel_speed_rad_s\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"motor_output\":[%.3f,%.3f,%.3f,%.3f],"
+        "\"body_vx_mps\":%.3f,\"body_vy_mps\":%.3f,\"body_wz_rad_s\":%.3f,"
+        "\"cmd_vx_mps\":%.3f,\"cmd_vy_mps\":%.3f,\"cmd_wz_rad_s\":%.3f}",
+        state.imu.linear_accel_mps2[0], state.imu.linear_accel_mps2[1], state.imu.linear_accel_mps2[2],
+        state.imu.gyro_rad_s[0], state.imu.gyro_rad_s[1], state.imu.gyro_rad_s[2],
+        state.imu.mag_uT[0], state.imu.mag_uT[1], state.imu.mag_uT[2],
+        state.imu.quaternion_xyzw[0], state.imu.quaternion_xyzw[1], state.imu.quaternion_xyzw[2], state.imu.quaternion_xyzw[3],
         state.raw_wheel_speed_rad_s[0], state.raw_wheel_speed_rad_s[1], state.raw_wheel_speed_rad_s[2], state.raw_wheel_speed_rad_s[3],
         state.measured_wheel_speed_rad_s[0], state.measured_wheel_speed_rad_s[1], state.measured_wheel_speed_rad_s[2], state.measured_wheel_speed_rad_s[3],
         state.target_wheel_speed_rad_s[0], state.target_wheel_speed_rad_s[1], state.target_wheel_speed_rad_s[2], state.target_wheel_speed_rad_s[3],
         state.motor_output[0], state.motor_output[1], state.motor_output[2], state.motor_output[3],
-        state.imu.quaternion_xyzw[0], state.imu.quaternion_xyzw[1], state.imu.quaternion_xyzw[2], state.imu.quaternion_xyzw[3],
         state.pose.vx_mps, state.pose.vy_mps, state.pose.wz_rad_s,
         state.command_twist.vx_mps, state.command_twist.vy_mps, state.command_twist.wz_rad_s);
     set_string(debug_message.data, debug_storage, sizeof(debug_storage), debug_storage);
@@ -415,6 +506,7 @@ void publish_telemetry(const RobotState &state) {
 void clean_ros_entities() {
     rcl_ret_t ret;
     if (ros_init_flags & kInitExecutor) { ret = rclc_executor_fini(&ros_executor); (void)ret; }
+    if (ros_init_flags & kInitConfigSub) { ret = rcl_subscription_fini(&config_subscriber, &ros_node); (void)ret; }
     if (ros_init_flags & kInitDebugPub) { ret = rcl_publisher_fini(&debug_publisher, &ros_node); (void)ret; }
     if (ros_init_flags & kInitStatusPub) { ret = rcl_publisher_fini(&status_publisher, &ros_node); (void)ret; }
     if (ros_init_flags & kInitImuPub) { ret = rcl_publisher_fini(&imu_publisher, &ros_node); (void)ret; }
@@ -502,12 +594,12 @@ void control_task(void *) {
                     RobotHardware::set_motor_output(index, 0.0F);
                 }
             } else {
-                // Thuần túy động học: quy đổi vận tốc góc bánh xe sang motor output [-1.0, 1.0] (bỏ PID)
                 for (uint8_t index = 0U; index < kWheelCount; ++index) {
-                    const float normalized_speed =
-                        state.target_wheel_speed_rad_s[index] /
-                        state.settings.max_wheel_speed_rad_s;
-                    state.motor_output[index] = clamp(normalized_speed, -1.0F, 1.0F);
+                    const float target = state.target_wheel_speed_rad_s[index];
+                    const float measured = state.measured_wheel_speed_rad_s[index];
+                    const float feedforward = target / state.settings.max_wheel_speed_rad_s;
+                    const float feedback = wheel_pids[index].update(target, measured, 0.01F);
+                    state.motor_output[index] = clamp(feedforward + feedback, -1.0F, 1.0F);
                     RobotHardware::set_motor_output(
                         index, state.motor_output[index]);
                 }
@@ -540,8 +632,9 @@ void encoder_task(void *) {
                     (static_cast<float>(kEncoderCountsPerRevolution) *
                      safe_delta);
                 const float pll_speed = wheel_pll[index].update(delta_counts, safe_delta);
+                const float kalman_speed = wheel_filters[index].update(raw_speed, safe_delta);
                 state.raw_wheel_speed_rad_s[index] = raw_speed;
-                state.measured_wheel_speed_rad_s[index] = pll_speed;
+                state.measured_wheel_speed_rad_s[index] = kalman_speed;
                 state.encoder_counts[index] = counts;
             }
             RobotHardware::update_simulation(state.target_wheel_speed_rad_s,

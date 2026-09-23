@@ -31,9 +31,7 @@ bool compute_wheel_speeds(const TwistCommand &twist,
         return false;
     }
 
-    const float radius = 0.5F *
-        sqrtf(settings.wheelbase_m * settings.wheelbase_m +
-              settings.track_width_m * settings.track_width_m);
+    const float radius = 0.5F * (settings.wheelbase_m + settings.track_width_m);
     const float values[kWheelCount] = {
         kDiagonal * twist.vx_mps + kDiagonal * twist.vy_mps +
             radius * twist.wz_rad_s,
@@ -73,9 +71,7 @@ bool compute_body_twist(const float wheel_speeds[kWheelCount],
             return false;
         }
     }
-    const float radius = 0.5F *
-        sqrtf(settings.wheelbase_m * settings.wheelbase_m +
-              settings.track_width_m * settings.track_width_m);
+    const float radius = 0.5F * (settings.wheelbase_m + settings.track_width_m);
     twist.vx_mps = settings.wheel_radius_m *
         (wheel_speeds[0] - wheel_speeds[1] - wheel_speeds[2] +
          wheel_speeds[3]) / (4.0F * kDiagonal);

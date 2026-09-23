@@ -9,9 +9,13 @@ void initialize_robot_state(RobotState &state) {
     state.settings.track_width_m = kTrackWidthM;
     state.settings.max_wheel_speed_rad_s = kMaxWheelSpeedRadS;
     state.settings.command_timeout_ms = kCommandTimeoutMs;
-    state.settings.motor_kp = kDefaultMotorKp;
-    state.settings.motor_ki = kDefaultMotorKi;
-    state.settings.motor_kd = kDefaultMotorKd;
+    for (uint8_t i = 0U; i < kWheelCount; ++i) {
+        state.settings.motor_kp[i] = kDefaultMotorKp;
+        state.settings.motor_ki[i] = kDefaultMotorKi;
+        state.settings.motor_kd[i] = kDefaultMotorKd;
+        state.settings.kalman_q[i] = kDefaultKalmanQ;
+        state.settings.kalman_r[i] = kDefaultKalmanR;
+    }
     state.imu.valid = false;
     state.imu_fault = true;
     state.motor_fault = false;

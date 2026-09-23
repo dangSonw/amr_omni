@@ -129,6 +129,8 @@ def generate_launch_description():
         ),
         Node(package='omni_safety', executable='command_watchdog',
              parameters=[safety_config], output='screen'),
+        Node(package='omni_safety', executable='safety_zone_node',
+             parameters=[safety_config], output='screen'),
         Node(package='omni_hardware', executable='stm32_bridge',
              parameters=[hardware_config, {
                  'debug_telemetry': debug_telemetry,

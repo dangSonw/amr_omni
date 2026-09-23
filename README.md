@@ -1032,6 +1032,39 @@ node .gitnexus/run.cjs analyze
 Không commit `.gitnexus/`. Trước khi sửa symbol code phải xem impact; sau thay
 đổi logic nên chạy detect changes theo quy ước trong `AGENTS.md`.
 
+## 16. Agent Skills (`.agents/skills/`)
+
+Thư mục `.agents/skills/` (hỗ trợ alias `.agents/skill/`) chứa 147 bộ kỹ năng chuẩn
+hóa hướng dẫn AI agent về Nav2, SLAM Toolbox, Cartographer, cảm biến (LiDAR, IMU, Camera),
+firmware STM32 micro-ROS, mô phỏng Gazebo Harmonic, chuẩn thiết kế giao diện Web
+(Next.js/React) và tối ưu hóa context (Ponytail, Caveman, Headroom).
+
+Mọi AI Agent khi làm việc trong repository PHẢI tuân thủ các quy tắc này theo
+hướng dẫn bắt buộc tại [`AGENTS.md`](AGENTS.md) và [`RULE.md`](RULE.md).
+
+## 17. Công cụ MCP & Cơ chế Auto-Approve (`.vscode/mcp.json`)
+
+File [`.vscode/mcp.json`](.vscode/mcp.json) cấu hình 9 máy chủ Model Context Protocol (MCP)
+cung cấp công cụ mở rộng cho AI Agent (VS Code, Cline, Roo Code, Cursor).
+
+Mỗi máy chủ được cấu hình danh sách `autoApprove` tương ứng, cho phép AI Agent
+tự động kích hoạt công cụ an toàn trong luồng phát triển mà không bị dừng lại chờ
+xác nhận thủ công từ người dùng.
+
+### Bảng tổng hợp máy chủ MCP, lệnh khởi chạy và công cụ
+
+| Máy chủ MCP | Lệnh / Command | Danh sách Tool & Lệnh (`autoApprove`) | Mục đích sử dụng |
+|-------------|----------------|---------------------------------------|------------------|
+| **`context7`** | `npx -y @upstash/context7-mcp@latest` | `resolve-library-id`, `get-library-docs`, `query-docs` | Tra cứu tài liệu API và code mẫu chính thức mới nhất cho các thư viện, framework |
+| **`chrome-devtools`** | `npx -y chrome-devtools-mcp@latest` | `click`, `fill`, `fill_form`, `hover`, `drag`, `press_key`, `handle_dialog`, `navigate_page`, `new_page`, `list_pages`, `select_page`, `close_page`, `wait_for`, `take_screenshot`, `take_snapshot`, `list_console_messages`, `list_network_requests`, `evaluate_script`, `lighthouse_audit`, `performance_start_trace`, `performance_stop_trace` | Tự động hóa trình duyệt Chrome, tương tác DOM, chụp ảnh màn hình, kiểm tra network, console log và đo hiệu năng Lighthouse/Core Web Vitals |
+| **`superpower`** | `npx -y superpowers-mcp@latest` | `list_skills`, `run_skill`, `get_skill_info`, `find_skills` | Kích hoạt các kỹ năng phát triển phần mềm chuyên sâu (TDD, Systematic Debugging, Planning, Brainstorming) |
+| **`ruflo`** | `npx -y ruflo@latest mcp start` | `swarm_init`, `agent_spawn`, `task_delegate`, `task_status`, `memory_store`, `memory_retrieve`, `consensus_vote`, `swarm_status` | Điều phối đàn AI đa tác tử (multi-agent swarms), chia nhỏ nhiệm vụ, bỏ phiếu đồng thuận và quản lý trạng thái phân tán |
+| **`penpot`** | `npx -y @penpot/mcp@latest` | `list_projects`, `list_files`, `create_file`, `get_object_tree`, `search_object`, `get_rendered_component`, `execute_code`, `import_image`, `export_shape`, `create_comment_thread` | Tương tác trực tiếp với thiết kế UI/UX trên Penpot: đọc cây layer/component, trích xuất mã thiết kế sang code và ngược lại |
+| **`next-ai-drawio`** | `npx -y @next-ai-drawio/mcp-server@latest` | `start_session`, `create_new_diagram`, `load_diagram`, `edit_diagram`, `get_diagram`, `export_diagram` | Tạo, chỉnh sửa và xuất sơ đồ kiến trúc hệ thống, lưu đồ thuật toán draw.io bằng ngôn ngữ tự nhiên |
+| **`github`** | `npx -y @modelcontextprotocol/server-github@latest` | `search_repositories`, `get_file_contents`, `create_or_update_file`, `push_files`, `create_issue`, `create_pull_request`, `fork_repository`, `create_branch`, `list_issues`, `list_pull_requests` | Thao tác kho mã nguồn GitHub: quản lý file, tạo branch, commit/push, mở Issue và Pull Request |
+| **`office-mcp`** | `npx -y office-mcp@latest` | `create_docx`, `read_docx`, `update_docx`, `create_xlsx`, `read_xlsx`, `update_xlsx`, `create_pptx`, `read_pptx`, `convert_document` | Tự động hóa tài liệu văn phòng: tạo và xử lý file Word (.docx), Excel (.xlsx), PowerPoint (.pptx) và chuyển đổi định dạng |
+| **`agentmemory`** | `npx -y @agentmemory/mcp@latest` | `memory_context`, `memory_search`, `memory_read`, `memory_write`, `memory_delete`, `memory_scratchpad`, `memory_stats` | Bộ nhớ dài hạn đa phiên cho AI Agent: tìm kiếm ngữ nghĩa (hybrid search), ghi nhớ quyết định kiến trúc và lưu trữ ghi chú tạm |
+
 <!-- 
 rm -f .git/index
 git reset 

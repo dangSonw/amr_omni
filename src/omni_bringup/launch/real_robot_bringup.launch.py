@@ -62,6 +62,13 @@ def generate_launch_description():
         output='screen',
     )
 
+    safety_zone = Node(
+        package='omni_safety',
+        executable='safety_zone_node',
+        parameters=[safety_config],
+        output='screen',
+    )
+
     ekf_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(localization_share, 'launch', 'ekf.launch.py')),
         launch_arguments={'use_sim_time': use_sim_time}.items(),
@@ -114,6 +121,7 @@ def generate_launch_description():
         DeclareLaunchArgument('perception', default_value='false'),
         state_publisher,
         safety_watchdog,
+        safety_zone,
         stm32_bridge,
         perception_launch,
         ekf_launch,

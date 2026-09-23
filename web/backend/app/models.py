@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional, Union
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class TwistCommand(BaseModel):
@@ -56,10 +56,15 @@ class ImuTelemetry(BaseModel):
 
 
 class DebugTelemetry(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     raw_wheel_speed_rad_s: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     filtered_wheel_speed_rad_s: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     target_wheel_speed_rad_s: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     motor_output: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    imu_accel_xyz: Optional[List[float]] = Field(default_factory=lambda: [0.0, 0.0, 9.81])
+    imu_gyro_xyz: Optional[List[float]] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    imu_mag_xyz: Optional[List[float]] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
     imu_quaternion_xyzw: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 1.0])
     body_vx_mps: float = 0.0
     body_vy_mps: float = 0.0
@@ -123,6 +128,8 @@ class StreamInfo(BaseModel):
 
 
 class RobotConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     wheel_radius_m: float = 0.03
     wheelbase_m: float = 0.1312
     track_width_m: float = 0.1312
@@ -133,9 +140,11 @@ class RobotConfig(BaseModel):
     safety_timeout_sec: float = 0.5
     control_frequency_hz: float = 100.0
     telemetry_frequency_hz: float = 50.0
-    motor_kp: float = 0.08
-    motor_ki: float = 0.25
-    motor_kd: float = 0.0005
+    motor_kp: Union[float, List[float]] = Field(default_factory=lambda: [1.0, 1.0, 1.0, 1.0])
+    motor_ki: Union[float, List[float]] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    motor_kd: Union[float, List[float]] = Field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
+    kalman_q: Union[float, List[float]] = Field(default_factory=lambda: [0.5, 0.5, 0.5, 0.5])
+    kalman_r: Union[float, List[float]] = Field(default_factory=lambda: [0.04, 0.04, 0.04, 0.04])
     debug_telemetry: bool = True
     noise_profile: str = "realistic"
     motor_jitter_ticks: int = 1

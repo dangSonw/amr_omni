@@ -79,9 +79,11 @@ export interface RobotConfig {
   command_timeout_sec: number;
   control_frequency_hz: number;
   telemetry_frequency_hz: number;
-  motor_kp: number;
-  motor_ki: number;
-  motor_kd: number;
+  motor_kp: number | number[];
+  motor_ki: number | number[];
+  motor_kd: number | number[];
+  kalman_q?: number | number[];
+  kalman_r?: number | number[];
   debug_telemetry: boolean;
   noise_profile?: string;
   motor_jitter_ticks?: number;
@@ -110,6 +112,9 @@ export interface DebugTelemetry {
   filtered_wheel_speed_rad_s: number[];
   target_wheel_speed_rad_s: number[];
   motor_output: number[];
+  imu_accel_xyz?: number[];
+  imu_gyro_xyz?: number[];
+  imu_mag_xyz?: number[];
   imu_quaternion_xyzw: number[];
   body_vx_mps: number;
   body_vy_mps: number;

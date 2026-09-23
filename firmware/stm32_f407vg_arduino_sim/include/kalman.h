@@ -8,6 +8,8 @@ public:
     void reset(float estimate, float covariance);
     float update(float measurement, float delta_sec);
     float estimate() const;
+    void set_noise(float process_noise, float measurement_noise);
+    void get_noise(float &process_noise, float &measurement_noise) const;
 
 private:
     float process_noise_;

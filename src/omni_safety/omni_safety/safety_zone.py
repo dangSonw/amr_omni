@@ -21,10 +21,29 @@ def evaluate_safety_zone(
     if stop_zone_m <= 0.0 or slow_zone_m <= stop_zone_m:
         raise ValueError("Invalid zone thresholds: must have 0 < stop_zone < slow_zone")
 
+    speed = math.hypot(vx, vy)
+    moving = speed > 0.02
+    heading_rad = math.atan2(vy, vx) if moving else 0.0
+    cone_half_angle_rad = math.radians(75.0)  # Directional safety cone ±75 deg
+    immediate_bubble_m = max(min_valid_range_m + 0.05, stop_zone_m * 0.4)
+
     min_dist = float("inf")
     for i, r in enumerate(ranges):
         if not math.isfinite(r) or r < min_valid_range_m:
             continue
+
+        if moving:
+            beam_angle = angle_min + i * angle_increment
+            angle_diff = math.atan2(
+                math.sin(beam_angle - heading_rad),
+                math.cos(beam_angle - heading_rad)
+            )
+            in_motion_cone = abs(angle_diff) <= cone_half_angle_rad
+            in_immediate_bubble = r < immediate_bubble_m
+
+            if not (in_motion_cone or in_immediate_bubble):
+                continue
+
         if r < min_dist:
             min_dist = r
 

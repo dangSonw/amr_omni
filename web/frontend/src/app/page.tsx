@@ -9,8 +9,8 @@ import { CameraFeed } from "@/components/CameraFeed";
 import { MapNavigation } from "@/components/MapNavigation";
 import { StreamMatrix } from "@/components/StreamMatrix";
 import { ImuQuaternionDisplay } from "@/components/charts/ImuQuaternionDisplay";
-import { LinearVelocityChart } from "@/components/charts/LinearVelocityChart";
-import { AngularVelocityChart } from "@/components/charts/AngularVelocityChart";
+import { ImuNineAxisChart } from "@/components/charts/ImuNineAxisChart";
+import { MotorSpeedChart } from "@/components/charts/MotorSpeedChart";
 import { DebugTelemetry } from "@/types/robot";
 
 const LINEAR_SPEED = 0.35; // m/s
@@ -50,6 +50,19 @@ export default function DashboardPage() {
     newPoint.qy = telemetry.imu?.qy ?? dbg?.imu_quaternion_xyzw?.[1] ?? 0;
     newPoint.qz = telemetry.imu?.qz ?? dbg?.imu_quaternion_xyzw?.[2] ?? 0;
     newPoint.qw = telemetry.imu?.qw ?? dbg?.imu_quaternion_xyzw?.[3] ?? 1;
+
+    // IMU 9-trục: Gia tốc tuyến tính (m/s²), Vận tốc góc (rad/s), Từ trường (µT)
+    newPoint.accel_x = dbg?.imu_accel_xyz?.[0] ?? telemetry.imu?.accel_x ?? 0;
+    newPoint.accel_y = dbg?.imu_accel_xyz?.[1] ?? telemetry.imu?.accel_y ?? 0;
+    newPoint.accel_z = dbg?.imu_accel_xyz?.[2] ?? telemetry.imu?.accel_z ?? 9.81;
+
+    newPoint.gyro_x = dbg?.imu_gyro_xyz?.[0] ?? telemetry.imu?.gyro_x ?? 0;
+    newPoint.gyro_y = dbg?.imu_gyro_xyz?.[1] ?? telemetry.imu?.gyro_y ?? 0;
+    newPoint.gyro_z = dbg?.imu_gyro_xyz?.[2] ?? telemetry.imu?.gyro_z ?? 0;
+
+    newPoint.mag_x = dbg?.imu_mag_xyz?.[0] ?? 0;
+    newPoint.mag_y = dbg?.imu_mag_xyz?.[1] ?? 20.0;
+    newPoint.mag_z = dbg?.imu_mag_xyz?.[2] ?? -45.0;
 
     newPoint.cmd_wz = dbg?.cmd_wz_rad_s ?? 0;
     newPoint.actual_wz = dbg?.body_wz_rad_s ?? telemetry.odom?.wz ?? 0;
@@ -209,17 +222,32 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Tab 3: Giám Sát Luồng Giao Tiếp (Monitor) */}
+          {/* Tab 3: Giám Sát Luồng Giao Tiếp & Telemetry Gỡ Lỗi STM32 (Monitor) */}
           {activeTab === "debug" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full">
-              <ImuQuaternionDisplay imu={telemetry?.imu} debug={telemetry?.debug} data={debugHistory} />
-              <LinearVelocityChart data={debugHistory} />
-              <div className="col-span-full">
-                <AngularVelocityChart data={debugHistory} />
+            <div className="flex flex-col gap-5 w-full">
+              {/* Hàng 1: Dữ Liệu Định Hướng Quaternion 9-DoF & Telemetry Cảm Biến IMU 9 Trục */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 w-full">
+                <div className="xl:col-span-1">
+                  <ImuQuaternionDisplay
+                    imu={telemetry?.imu}
+                    debug={telemetry?.debug}
+                    data={debugHistory}
+                  />
+                </div>
+                <div className="xl:col-span-2">
+                  <ImuNineAxisChart
+                    imu={telemetry?.imu}
+                    debug={telemetry?.debug}
+                    data={debugHistory}
+                  />
+                </div>
               </div>
-              <div className="col-span-full">
-                <StreamMatrix streams={telemetry?.streams} />
-              </div>
+
+              {/* Hàng 2: Vận Tốc 4 Bánh Xe Trước & Sau Lọc Kalman từ topic debug/data */}
+              <MotorSpeedChart data={debugHistory} debug={telemetry?.debug} />
+
+              {/* Hàng 3: Ma Trận Giám Sát Tất Cả 22 Luồng Giao Tiếp Hệ Thống Nguồn -> Đích */}
+              <StreamMatrix streams={telemetry?.streams} />
             </div>
           )}
         </main>

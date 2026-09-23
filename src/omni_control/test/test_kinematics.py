@@ -163,6 +163,28 @@ class KinematicsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             inverse_kinematics(0.1, 0.0, 0.0, 0.03, 0.1312, 0.1312, 0.0)
 
+    def test_standard_radius_pure_rotation(self):
+        # With wz = 1.0 rad/s, vx = 0, vy = 0:
+        # Standard radius = (0.1312 + 0.1312) / 2 = 0.1312 m
+        # Linear wheel rim speed = radius * wz = 0.1312 m/s
+        # Angular wheel speed = rim_speed / wheel_radius = 0.1312 / 0.03 = 4.37333 rad/s
+        wheels = inverse_kinematics(0.0, 0.0, 1.0, 0.03, 0.1312, 0.1312, 50.0)
+        expected_speed = 0.1312 / 0.03
+        for w in wheels:
+            self.assertAlmostEqual(w, expected_speed, places=5)
+
+    def test_absolute_radius_guard(self):
+        # Passing absolute radius [0.03, 0.03, 0.03, 0.03] should not double-multiply to 0.0009
+        wheels_with_abs = inverse_kinematics(
+            0.3, 0.0, 0.0, 0.03, 0.1312, 0.1312, 50.0,
+            wheel_radius_correction=[0.03, 0.03, 0.03, 0.03]
+        )
+        wheels_nominal = inverse_kinematics(
+            0.3, 0.0, 0.0, 0.03, 0.1312, 0.1312, 50.0
+        )
+        for w_abs, w_nom in zip(wheels_with_abs, wheels_nominal):
+            self.assertAlmostEqual(w_abs, w_nom, places=5)
+
 
 if __name__ == '__main__':
     unittest.main()

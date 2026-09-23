@@ -36,3 +36,15 @@ float ScalarKalman::update(float measurement, float delta_sec) {
 float ScalarKalman::estimate() const {
     return estimate_;
 }
+
+void ScalarKalman::set_noise(float process_noise, float measurement_noise) {
+    if (process_noise >= 0.0F && measurement_noise > 0.0F) {
+        process_noise_ = process_noise;
+        measurement_noise_ = measurement_noise;
+    }
+}
+
+void ScalarKalman::get_noise(float &process_noise, float &measurement_noise) const {
+    process_noise = process_noise_;
+    measurement_noise = measurement_noise_;
+}

@@ -1,9 +1,9 @@
 # AGENTS.MD — Luật phát triển AMR Omni
 
 Đây là **nguồn luật duy nhất** cho con người và AI agent trong repository
-`amr_omni`. Không tạo `.agents/rules/`, `.agents/skills/`, `.dockerignore` hoặc
-tài liệu quy ước trùng lặp nếu chủ dự án không yêu cầu rõ. Các từ **PHẢI**,
-**KHÔNG ĐƯỢC**, **NÊN** thể hiện mức bắt buộc, cấm và khuyến nghị mạnh.
+`amr_omni`. Thư mục `.agents/skills/` chứa các bộ kỹ năng tiêu chuẩn được dự án
+phê duyệt. AI agent PHẢI tuân thủ nghiêm ngặt các quy tắc thiết kế và bộ skills
+này. Các từ **PHẢI**, **KHÔNG ĐƯỢC**, **NÊN** thể hiện mức bắt buộc, cấm và khuyến nghị mạnh.
 
 ## 1. Nền tảng đã chốt
 
@@ -244,15 +244,21 @@ integration topic/TF/config → simulation headless → GUI → hardware-in-the-
   `README.MD`, không tạo bản trùng khác chữ hoa/thường.
 
 ## 11. Quy trình bắt buộc cho AI agent
-
+ 
 1. Xác định đích WSL/Jazzy simulation hay Jetson/Melodic robot và trình bày plan.
 2. Kiểm tra Git status, bảo vệ thay đổi người dùng.
-3. Dùng GitNexus-first theo Mục 5 rồi chỉ đọc file/symbol cần thiết.
-4. Không tự thêm framework, dependency, container, C++ hoặc cấu trúc tài liệu.
-5. Giữ shared core độc lập ROS và thay đổi nhỏ, rõ phạm vi.
-6. Chạy lint/test/build khả dụng trên host hiện tại.
-7. Kiểm tra diff, artifact, secret và hard-coded path cuối cùng.
-8. Báo file đã đổi, lệnh/kết quả kiểm tra và phần chưa xác minh; không phóng đại.
+3. **BẮT BUỘC dùng GitNexus-first:** Không grep bừa bãi. Dùng `query()` để tìm luồng, `context()` để kiểm tra ngữ cảnh symbol, `impact()` trước khi sửa bất kỳ hàm/class nào, và `detect_changes()` trước khi commit.
+4. **BẮT BUỘC tuân thủ các quy tắc trong `.agents/skills/`:**
+   - `ponytail`: Luôn chọn giải pháp đơn giản nhất, ngắn nhất, YAGNI, tái sử dụng code có sẵn, không trừu tượng hóa thừa.
+   - `caveman`: Giao tiếp ngắn gọn, trực diện, không rườm rà/filler, chính xác kỹ thuật.
+   - `headroom`: Nén log dài, JSON lớn và kết quả tìm kiếm để tối ưu context.
+   - `frontend-design`, `web-design-guidelines`, `ui-skills`: Thiết kế giao diện phẳng/công nghiệp, sạch sẽ, chuẩn xác, không làm xấu hoặc vỡ layout.
+   - `vercel-react-best-practices`: Tuân thủ 45 quy tắc hiệu năng React/Next.js (loại bỏ waterfalls, tối ưu bundle, tránh re-render thừa).
+5. Không tự thêm framework, dependency, container, C++ hoặc cấu trúc tài liệu.
+6. Giữ shared core độc lập ROS và thay đổi nhỏ, rõ phạm vi.
+7. Chạy lint/test/build khả dụng trên host hiện tại.
+8. Kiểm tra diff, artifact, secret và hard-coded path cuối cùng.
+9. Báo file đã đổi, lệnh/kết quả kiểm tra và phần chưa xác minh; không phóng đại.
 
 ## 12. Definition of Done
 

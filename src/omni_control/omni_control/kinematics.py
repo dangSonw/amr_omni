@@ -42,7 +42,7 @@ def inverse_kinematics(vx_mps, vy_mps, wz_rad_s, wheel_radius_m,
     )
 
     d = np.sqrt(0.5)
-    radius = 0.5 * np.hypot(wheelbase_m, track_width_m)
+    radius = 0.5 * (wheelbase_m + track_width_m)
     # Wheel 1 (FR: -45 deg), Wheel 2 (FL: +45 deg), Wheel 3 (RL: +135 deg), Wheel 4 (RR: -135 deg)
     matrix = np.array([
         [ d,  d, radius],
@@ -93,6 +93,11 @@ def _parse_wheel_radius_correction(wheel_radius_m, wheel_radius_correction=None,
     if np.any(arr <= 0.0):
         raise ValueError('wheel_radius_correction elements must be strictly positive')
 
+    # Bug 2 fix: If correction elements appear to be absolute radii in meters (e.g. ~0.03 m)
+    # rather than dimensionless scale factors (~1.0), use them directly to prevent double multiplication.
+    if np.all(arr < 0.15) and np.all(np.abs(arr - wheel_radius_m) < wheel_radius_m * 0.5):
+        return arr
+
     return float(wheel_radius_m) * arr
 
 
@@ -118,7 +123,7 @@ def forward_kinematics(wheel_speeds_rad_s, wheel_radius_m, wheelbase_m,
     rim_speeds = speeds * effective_radii
 
     d = np.sqrt(0.5)
-    radius = 0.5 * np.hypot(wheelbase_m, track_width_m)
+    radius = 0.5 * (wheelbase_m + track_width_m)
     pinv_matrix = 0.25 * np.array([
         [ 1.0 / d, -1.0 / d, -1.0 / d,  1.0 / d],
         [ 1.0 / d,  1.0 / d, -1.0 / d, -1.0 / d],

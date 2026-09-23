@@ -18,6 +18,7 @@ Adafruit_BNO08x bno08x(-1);
 sh2_SensorValue_t sensor_value;
 ImuSample imu_sample_cache = {{0.0F, 0.0F, 0.0F},
                               {0.0F, 0.0F, 0.0F},
+                              {0.0F, 0.0F, 0.0F},
                               {0.0F, 0.0F, 0.0F, 1.0F},
                               0.0F, false};
 bool imu_initialized = false;
@@ -97,6 +98,8 @@ bool initialize_imu() {
         bno08x.enableReport(SH2_GYROSCOPE_CALIBRATED,
                             kImuPeriodMs * 1000U) &&
         bno08x.enableReport(SH2_ROTATION_VECTOR, kImuPeriodMs * 1000U);
+    // Cố gắng bật báo cáo từ trường nếu cảm biến hỗ trợ
+    bno08x.enableReport(SH2_MAGNETIC_FIELD_CALIBRATED, kImuPeriodMs * 1000U);
     return imu_initialized;
 #endif
 }
@@ -108,6 +111,7 @@ bool imu_is_initialized() {
 bool read_imu(ImuSample &sample) {
 #ifdef STM32_RENODE_SIM
     memset(&sample, 0, sizeof(sample));
+    sample.linear_accel_mps2[2] = 9.80665F;
     sample.quaternion_xyzw[3] = 1.0F;
     sample.valid = true;
     return true;
@@ -145,6 +149,10 @@ bool read_imu(ImuSample &sample) {
             sensor_value.un.rotationVector.real;
         imu_sample_cache.accuracy_rad =
             sensor_value.un.rotationVector.accuracy;
+    } else if (sensor_value.sensorId == SH2_MAGNETIC_FIELD_CALIBRATED) {
+        imu_sample_cache.mag_uT[0] = sensor_value.un.magneticField.x;
+        imu_sample_cache.mag_uT[1] = sensor_value.un.magneticField.y;
+        imu_sample_cache.mag_uT[2] = sensor_value.un.magneticField.z;
     } else {
         sample = imu_sample_cache;
         return imu_sample_cache.valid;

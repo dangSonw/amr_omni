@@ -10,9 +10,9 @@ stm32_simulator:
     control_frequency_hz: 100.0
     telemetry_frequency_hz: 50.0
     encoder_counts_per_revolution: 2048.0
-    motor_kp: 0.08
-    motor_ki: 0.25
-    motor_kd: 0.0005
+    motor_kp: 1.0
+    motor_ki: 0.0
+    motor_kd: 0.0
     command_topic: stm32_cmd_vel
     joint_states_topic: joint_states
     imu_input_topic: imu

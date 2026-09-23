@@ -1,5 +1,6 @@
 import json
 import math
+import random
 
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
@@ -32,36 +33,22 @@ SERIAL_HEADER_SYNC_1 = 0x55
 SERIAL_TAIL_BYTE = 0x7D
 SERIAL_MAX_PAYLOAD_LEN = 64
 SERIAL_FRAME_OVERHEAD = 8
-
 CMD_CALIB_TRIGGER_IMU = 0x10
-CMD_CALIB_TRIGGER_WHEEL = 0x11
-CMD_CALIB_START_NOISE_PROFILE = 0x12
-CMD_CALIB_ABORT = 0x13
-CMD_CALIB_FLASH_COMMIT = 0x14
-
 RESP_ACK_NACK = 0x80
-TELEM_CALIB_PROGRESS = 0x81
-RESP_CALIB_IMU_RESULT = 0x82
-RESP_CALIB_WHEEL_RESULT = 0x83
-RESP_CALIB_NOISE_RESULT = 0x84
 
 STANDARD_GRAVITY_MPS2 = 9.80665
-MAX_GYRO_DRIFT_RAD_S = 8.7266e-4
-MAX_ACCEL_NORM_ERROR_MPS2 = 0.05
-MAX_GYRO_STATIC_VARIANCE = 1.0e-4
 DEFAULT_GYRO_NOISE_DENSITY = 1.4e-4
 DEFAULT_ACCEL_NOISE_DENSITY = 1.9e-3
-DEFAULT_GYRO_RANDOM_WALK = 1.5e-5
 DEFAULT_INFLATION_ALPHA = 1.8
 
 
 class SimplePID:
     """Simple PID controller matching firmware WheelSpeedPid behavior."""
-    def __init__(self, kp, ki, kd, output_limit=1.0):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.output_limit = output_limit
+    def __init__(self, kp=1.0, ki=0.0, kd=0.0, output_limit=1.0):
+        self.kp = float(kp)
+        self.ki = float(ki)
+        self.kd = float(kd)
+        self.output_limit = float(output_limit)
         self.integral = 0.0
         self.previous_measurement = 0.0
         self.initialized = False
@@ -71,9 +58,22 @@ class SimplePID:
         self.previous_measurement = 0.0
         self.initialized = False
 
+    def is_passthrough(self):
+        return abs(self.kp - 1.0) < 1e-5 and abs(self.ki) < 1e-5 and abs(self.kd) < 1e-5
+
+    def set_tunings(self, kp, ki, kd):
+        self.kp = float(kp)
+        self.ki = float(ki)
+        self.kd = float(kd)
+
     def update(self, setpoint, measurement, dt):
         if not math.isfinite(setpoint) or not math.isfinite(measurement) or dt <= 0:
             self.reset()
+            return 0.0
+        if self.is_passthrough():
+            self.integral = 0.0
+            self.previous_measurement = measurement
+            self.initialized = True
             return 0.0
         error = setpoint - measurement
         if not self.initialized:
@@ -100,6 +100,12 @@ class ScalarKalman:
         self.estimate_value = 0.0
         self.covariance = 1.0
         self.initialized = False
+
+    def set_noise(self, process_noise, measurement_noise):
+        if process_noise < 0 or measurement_noise <= 0:
+            raise ValueError('Kalman noise parameters are invalid')
+        self.process_noise = float(process_noise)
+        self.measurement_noise = float(measurement_noise)
 
     def reset(self, estimate=0.0, covariance=1.0):
         if not math.isfinite(estimate) or covariance <= 0:
@@ -220,438 +226,30 @@ class EncoderPll:
         return self.update(diff, delta_sec)
 
 
-class ImuCalibrator:
-    """ST AN4508 6-face accelerometer & Welford stationary gyro calibration.
-    
-    Faithful port of firmware/stm32_f407vg_arduino_sim/src/imu_calibration.cpp.
+
+def compute_imu_covariances(dt_sec):
+    """Compute IMU covariance matrices for ROS 2 Imu message.
+
+    BNO08x handles calibration internally - this only provides noise
+    covariance values for EKF fusion.
     """
-    FACE_POS_X = 0
-    FACE_NEG_X = 1
-    FACE_POS_Y = 2
-    FACE_NEG_Y = 3
-    FACE_POS_Z = 4
-    FACE_NEG_Z = 5
-    FACE_COUNT = 6
+    dt = max(float(dt_sec), 0.001)
+    alpha_sq = DEFAULT_INFLATION_ALPHA ** 2
 
-    CALIB_IDLE = 0
-    CALIB_GYRO_SAMPLING = 1
-    CALIB_ACCEL_SAMPLING = 2
-    CALIB_COMPUTING = 3
-    CALIB_SUCCESS = 4
-    CALIB_FAILED_MOTION = 5
-    CALIB_FAILED_MATH = 6
+    gyro_var = max(1.0e-4, alpha_sq * (DEFAULT_GYRO_NOISE_DENSITY ** 2) / dt)
+    accel_var = max(1.0e-2, alpha_sq * (DEFAULT_ACCEL_NOISE_DENSITY ** 2) / dt)
 
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.state = self.CALIB_IDLE
-        self.current_stage = 0
-        self.target_samples = 0
-        self.sample_count = 0
-
-        self.gyro_bias = [0.0, 0.0, 0.0]
-        self.accel_scale = [1.0, 1.0, 1.0]
-        self.accel_bias = [0.0, 0.0, 0.0]
-
-        self.gyro_noise_density = DEFAULT_GYRO_NOISE_DENSITY
-        self.accel_noise_density = DEFAULT_ACCEL_NOISE_DENSITY
-        self.gyro_random_walk = DEFAULT_GYRO_RANDOM_WALK
-        self.covariance_inflation = DEFAULT_INFLATION_ALPHA
-
-        self.gyro_calibrated = False
-        self.accel_calibrated = False
-        self.calibration_enabled = True
-
-        self.gyro_mean = [0.0, 0.0, 0.0]
-        self.gyro_m2 = [0.0, 0.0, 0.0]
-
-        self.accel_face_sum = [[0.0, 0.0, 0.0] for _ in range(self.FACE_COUNT)]
-        self.accel_face_count = [0] * self.FACE_COUNT
-        self.face_completed = [False] * self.FACE_COUNT
-
-        self.arbitrary_poses = []
-        self.wheel_radii = [0.03, 0.03, 0.03, 0.03]
-        self.wheelbase_m = 0.1312
-        self.track_width_m = 0.1312
-        self.lever_arm = [0.05, 0.0, 0.08]
-        self.extrinsics_calibrated = False
-        self.encoder_calibrated = False
-
-    @staticmethod
-    def detect_current_face(accel_raw, tolerance=2.5):
-        """Detect which of the 6 ST AN4508 faces the IMU is currently oriented to."""
-        if not accel_raw or len(accel_raw) != 3 or not all(math.isfinite(x) for x in accel_raw):
-            return None, False
-        g = STANDARD_GRAVITY_MPS2
-        ax, ay, az = accel_raw
-        norm = math.sqrt(ax * ax + ay * ay + az * az)
-        is_stationary = abs(norm - g) < tolerance
-        face = None
-        if is_stationary:
-            if az > g - tolerance and abs(ax) < tolerance and abs(ay) < tolerance:
-                face = ImuCalibrator.FACE_POS_Z
-            elif az < -g + tolerance and abs(ax) < tolerance and abs(ay) < tolerance:
-                face = ImuCalibrator.FACE_NEG_Z
-            elif ax > g - tolerance and abs(ay) < tolerance and abs(az) < tolerance:
-                face = ImuCalibrator.FACE_POS_X
-            elif ax < -g + tolerance and abs(ay) < tolerance and abs(az) < tolerance:
-                face = ImuCalibrator.FACE_NEG_X
-            elif ay > g - tolerance and abs(ax) < tolerance and abs(az) < tolerance:
-                face = ImuCalibrator.FACE_POS_Y
-            elif ay < -g + tolerance and abs(ax) < tolerance and abs(az) < tolerance:
-                face = ImuCalibrator.FACE_NEG_Y
-        return face, is_stationary
-
-    def start_gyro_calibration(self, target_samples=1000):
-        if target_samples < 50:
-            return False
-        self.state = self.CALIB_GYRO_SAMPLING
-        self.current_stage = 0
-        self.target_samples = target_samples
-        self.sample_count = 0
-        self.gyro_mean = [0.0, 0.0, 0.0]
-        self.gyro_m2 = [0.0, 0.0, 0.0]
-        return True
-
-    def update_gyro_sample(self, gyro_raw):
-        if self.state != self.CALIB_GYRO_SAMPLING:
-            return False
-        if len(gyro_raw) != 3 or not all(math.isfinite(x) for x in gyro_raw):
-            return False
-
-        self.sample_count += 1
-        for i in range(3):
-            delta = gyro_raw[i] - self.gyro_mean[i]
-            self.gyro_mean[i] += delta / float(self.sample_count)
-            delta2 = gyro_raw[i] - self.gyro_mean[i]
-            self.gyro_m2[i] += delta * delta2
-
-        if self.sample_count > 50:
-            variance_sum = sum(self.gyro_m2) / float(self.sample_count - 1)
-            if variance_sum > MAX_GYRO_STATIC_VARIANCE:
-                self.state = self.CALIB_FAILED_MOTION
-                return False
-        return True
-
-    def finish_gyro_calibration(self):
-        if self.state != self.CALIB_GYRO_SAMPLING or self.sample_count < 50:
-            self.state = self.CALIB_FAILED_MATH
-            return False, 0.0
-
-        self.gyro_bias = list(self.gyro_mean)
-        self.gyro_calibrated = True
-        self.state = self.CALIB_SUCCESS
-
-        variance_sum = sum(self.gyro_m2) / float(self.sample_count - 1)
-        residual_drift_rad_s = math.sqrt(variance_sum / float(self.sample_count))
-        success = residual_drift_rad_s < MAX_GYRO_DRIFT_RAD_S
-        return success, residual_drift_rad_s
-
-    def start_accel_face(self, face, target_samples=200):
-        if face < 0 or face >= self.FACE_COUNT or target_samples < 20:
-            return False
-        self.state = self.CALIB_ACCEL_SAMPLING
-        self.current_stage = face
-        self.target_samples = target_samples
-        self.sample_count = 0
-        self.accel_face_sum[face] = [0.0, 0.0, 0.0]
-        self.accel_face_count[face] = 0
-        return True
-
-    def update_accel_sample(self, accel_raw):
-        if self.state != self.CALIB_ACCEL_SAMPLING or self.current_stage >= self.FACE_COUNT:
-            return False
-        if len(accel_raw) != 3 or not all(math.isfinite(x) for x in accel_raw):
-            return False
-
-        for i in range(3):
-            self.accel_face_sum[self.current_stage][i] += accel_raw[i]
-        self.sample_count += 1
-        self.accel_face_count[self.current_stage] = self.sample_count
-        return True
-
-    def finish_accel_face(self):
-        if self.state != self.CALIB_ACCEL_SAMPLING or self.sample_count == 0:
-            return False
-        self.face_completed[self.current_stage] = True
-        self.state = self.CALIB_IDLE
-        return True
-
-    def compute_accel_calibration(self):
-        if not all(self.face_completed) or any(c == 0 for c in self.accel_face_count):
-            self.state = self.CALIB_FAILED_MATH
-            return False, 0.0
-
-        self.state = self.CALIB_COMPUTING
-        avg = []
-        for f in range(self.FACE_COUNT):
-            cnt = float(self.accel_face_count[f])
-            avg.append([self.accel_face_sum[f][i] / cnt for i in range(3)])
-
-        two_g = 2.0 * STANDARD_GRAVITY_MPS2
-        denom_x = avg[self.FACE_POS_X][0] - avg[self.FACE_NEG_X][0]
-        denom_y = avg[self.FACE_POS_Y][1] - avg[self.FACE_NEG_Y][1]
-        denom_z = avg[self.FACE_POS_Z][2] - avg[self.FACE_NEG_Z][2]
-
-        if abs(denom_x) < 1e-4 or abs(denom_y) < 1e-4 or abs(denom_z) < 1e-4:
-            self.state = self.CALIB_FAILED_MATH
-            return False, 0.0
-
-        sx = denom_x / two_g
-        bx = (avg[self.FACE_POS_X][0] + avg[self.FACE_NEG_X][0]) * 0.5
-
-        sy = denom_y / two_g
-        by = (avg[self.FACE_POS_Y][1] + avg[self.FACE_NEG_Y][1]) * 0.5
-
-        sz = denom_z / two_g
-        bz = (avg[self.FACE_POS_Z][2] + avg[self.FACE_NEG_Z][2]) * 0.5
-
-        if (sx < 0.7 or sx > 1.3 or sy < 0.7 or sy > 1.3 or sz < 0.7 or sz > 1.3 or
-                abs(bx) > 4.0 or abs(by) > 4.0 or abs(bz) > 4.0):
-            self.state = self.CALIB_FAILED_MATH
-            return False, 0.0
-
-        self.accel_scale = [sx, sy, sz]
-        self.accel_bias = [bx, by, bz]
-
-        max_norm_error = 0.0
-        for f in range(self.FACE_COUNT):
-            ax_cal = (avg[f][0] - bx) / sx
-            ay_cal = (avg[f][1] - by) / sy
-            az_cal = (avg[f][2] - bz) / sz
-            norm = math.sqrt(ax_cal * ax_cal + ay_cal * ay_cal + az_cal * az_cal)
-            err = abs(norm - STANDARD_GRAVITY_MPS2)
-            if err > max_norm_error:
-                max_norm_error = err
-
-        if max_norm_error > MAX_ACCEL_NORM_ERROR_MPS2:
-            self.state = self.CALIB_FAILED_MATH
-            return False, max_norm_error
-
-        self.accel_calibrated = True
-        self.state = self.CALIB_SUCCESS
-        return True, max_norm_error
-
-    def add_arbitrary_pose(self, accel_mean):
-        if len(self.arbitrary_poses) >= 24:
-            return False
-        if not accel_mean or len(accel_mean) != 3 or not all(math.isfinite(x) for x in accel_mean):
-            return False
-        self.arbitrary_poses.append(list(accel_mean))
-        return True
-
-    def compute_multi_pose_calibration(self):
-        if len(self.arbitrary_poses) < 4:
-            self.state = self.CALIB_FAILED_MATH
-            return False, 999.0
-
-        self.state = self.CALIB_COMPUTING
-        g = STANDARD_GRAVITY_MPS2
-        sx, sy, sz = 1.0, 1.0, 1.0
-        bx, by, bz = 0.0, 0.0, 0.0
-
-        # Min/max bounds across arbitrary poses
-        min_a = [min(p[i] for p in self.arbitrary_poses) for i in range(3)]
-        max_a = [max(p[i] for p in self.arbitrary_poses) for i in range(3)]
-
-        for i in range(3):
-            if max_a[i] > min_a[i] + 1.0:
-                span = max_a[i] - min_a[i]
-                s_est = span / (2.0 * g)
-                if 0.7 <= s_est <= 1.3:
-                    if i == 0: sx = s_est
-                    elif i == 1: sy = s_est
-                    else: sz = s_est
-                b_est = (max_a[i] + min_a[i]) * 0.5
-                if abs(b_est) <= 4.0:
-                    if i == 0: bx = b_est
-                    elif i == 1: by = b_est
-                    else: bz = b_est
-
-        # Gradient descent / Gauss-Newton refinement
-        lr = 0.005
-        for _ in range(20):
-            grad_b = [0.0, 0.0, 0.0]
-            grad_s = [0.0, 0.0, 0.0]
-            for p in self.arbitrary_poses:
-                cal = [(p[0] - bx) / sx, (p[1] - by) / sy, (p[2] - bz) / sz]
-                norm = math.sqrt(cal[0]**2 + cal[1]**2 + cal[2]**2)
-                err = norm - g
-                if norm > 1e-3:
-                    factor = err / norm
-                    grad_b[0] -= factor * (cal[0] / sx)
-                    grad_b[1] -= factor * (cal[1] / sy)
-                    grad_b[2] -= factor * (cal[2] / sz)
-
-                    grad_s[0] -= factor * (cal[0]**2 / sx)
-                    grad_s[1] -= factor * (cal[1]**2 / sy)
-                    grad_s[2] -= factor * (cal[2]**2 / sz)
-
-            bx = max(-4.0, min(4.0, bx + lr * grad_b[0]))
-            by = max(-4.0, min(4.0, by + lr * grad_b[1]))
-            bz = max(-4.0, min(4.0, bz + lr * grad_b[2]))
-
-            sx = max(0.7, min(1.3, sx + lr * grad_s[0]))
-            sy = max(0.7, min(1.3, sy + lr * grad_s[1]))
-            sz = max(0.7, min(1.3, sz + lr * grad_s[2]))
-
-        max_err = 0.0
-        for p in self.arbitrary_poses:
-            norm = math.sqrt(((p[0] - bx) / sx)**2 + ((p[1] - by) / sy)**2 + ((p[2] - bz) / sz)**2)
-            err = abs(norm - g)
-            if err > max_err:
-                max_err = err
-
-        self.accel_scale = [sx, sy, sz]
-        self.accel_bias = [bx, by, bz]
-        self.accel_calibrated = True
-        self.state = self.CALIB_SUCCESS
-        return True, max_err
-
-    def calibrate_wheel_radii(self, true_distance_m, wheel_travel_m):
-        if true_distance_m <= 0.01 or len(wheel_travel_m) < 4:
-            return
-        for i in range(4):
-            if wheel_travel_m[i] > 0.01:
-                ratio = true_distance_m / wheel_travel_m[i]
-                new_r = 0.03 * ratio
-                if 0.025 <= new_r <= 0.035:
-                    self.wheel_radii[i] = round(new_r, 4)
-        self.encoder_calibrated = True
-
-    def compute_lever_arm(self, w_sq_1, ax_1, ay_1, w_sq_2, ax_2, ay_2):
-        delta_w = w_sq_2 - w_sq_1
-        if abs(delta_w) < 0.05:
-            return False, self.lever_arm
-        lx = -(ax_2 - ax_1) / delta_w
-        ly = -(ay_2 - ay_1) / delta_w
-        if abs(lx) < 0.25 and abs(ly) < 0.25:
-            self.lever_arm = [round(lx, 4), round(ly, 4), 0.08]
-            self.extrinsics_calibrated = True
-            return True, self.lever_arm
-        return False, self.lever_arm
-
-    def apply(self, raw_accel, raw_gyro):
-        if not getattr(self, "calibration_enabled", True):
-            return list(raw_accel), list(raw_gyro)
-
-        calib_accel = [0.0, 0.0, 0.0]
-        calib_gyro = [0.0, 0.0, 0.0]
-
-        for i in range(3):
-            # Physical sanity clamp for scale [0.85, 1.15] and bias [-2.0, 2.0] m/s^2
-            if (self.accel_calibrated and 
-                0.85 <= abs(self.accel_scale[i]) <= 1.15 and 
-                abs(self.accel_bias[i]) <= 2.0):
-                calib_accel[i] = (raw_accel[i] - self.accel_bias[i]) / self.accel_scale[i]
-            else:
-                calib_accel[i] = raw_accel[i]
-
-            if self.gyro_calibrated and abs(self.gyro_bias[i]) <= 0.5:
-                calib_gyro[i] = raw_gyro[i] - self.gyro_bias[i]
-            else:
-                calib_gyro[i] = raw_gyro[i]
-
-        return calib_accel, calib_gyro
-
-    def compute_covariances(self, dt_sec):
-        dt = max(float(dt_sec), 0.001)
-        alpha = max(float(self.covariance_inflation), 1.0)
-        alpha_sq = alpha * alpha
-
-        gyro_var = max(1.0e-4, alpha_sq * (self.gyro_noise_density ** 2) / dt)
-        accel_var = max(1.0e-2, alpha_sq * (self.accel_noise_density ** 2) / dt)
-
-        angular_vel_cov = [
-            1.0e6, 0.0, 0.0,
-            0.0, 1.0e6, 0.0,
-            0.0, 0.0, gyro_var
-        ]
-        linear_accel_cov = [
-            accel_var, 0.0, 0.0,
-            0.0, accel_var, 0.0,
-            0.0, 0.0, accel_var
-        ]
-        return angular_vel_cov, linear_accel_cov
-
-
-class SensorNoiseModel:
-    """Configurable sensor noise and imperfection injector for Gazebo / AMR simulation."""
-    PROFILES = {
-        "clean": {
-            "gyro_bias": [0.0, 0.0, 0.0],
-            "gyro_stddev": 0.0,
-            "accel_bias": [0.0, 0.0, 0.0],
-            "accel_scale": [1.0, 1.0, 1.0],
-            "accel_stddev": 0.0,
-            "encoder_jitter_ticks": 0,
-            "encoder_slip_prob": 0.0,
-        },
-        "low": {
-            "gyro_bias": [0.005, -0.006, 0.008],
-            "gyro_stddev": 0.002,
-            "accel_bias": [0.04, -0.05, 0.06],
-            "accel_scale": [1.01, 0.99, 1.01],
-            "accel_stddev": 0.015,
-            "encoder_jitter_ticks": 0,
-            "encoder_slip_prob": 0.001,
-        },
-        "realistic": {
-            "gyro_bias": [0.018, -0.024, 0.032],  # ~1.0 - 1.8 deg/s drift
-            "gyro_stddev": 0.006,
-            "accel_bias": [0.15, -0.18, 0.25],
-            "accel_scale": [1.05, 0.96, 1.04],
-            "accel_stddev": 0.05,
-            "encoder_jitter_ticks": 1,
-            "encoder_slip_prob": 0.005,
-        },
-        "harsh": {
-            "gyro_bias": [0.045, -0.055, 0.065],
-            "gyro_stddev": 0.018,
-            "accel_bias": [0.35, -0.42, 0.55],
-            "accel_scale": [1.10, 0.90, 1.08],
-            "accel_stddev": 0.15,
-            "encoder_jitter_ticks": 2,
-            "encoder_slip_prob": 0.02,
-        }
-    }
-
-    def __init__(self, profile_name="realistic"):
-        self.set_profile(profile_name)
-
-    def set_profile(self, profile_name):
-        self.profile_name = profile_name if profile_name in self.PROFILES else "realistic"
-        self.params = dict(self.PROFILES[self.profile_name])
-
-    def corrupt_imu(self, true_accel, true_gyro):
-        import random
-        p = self.params
-        corrupted_accel = [
-            (true_accel[i] * p["accel_scale"][i]) + p["accel_bias"][i] + (random.gauss(0, p["accel_stddev"]) if p["accel_stddev"] > 0 else 0.0)
-            for i in range(3)
-        ]
-        corrupted_gyro = [
-            true_gyro[i] + p["gyro_bias"][i] + (random.gauss(0, p["gyro_stddev"]) if p["gyro_stddev"] > 0 else 0.0)
-            for i in range(3)
-        ]
-        return corrupted_accel, corrupted_gyro
-
-    def corrupt_encoder_counts(self, raw_counts):
-        import random
-        p = self.params
-        jitter = p.get("encoder_jitter_ticks", 0)
-        slip_prob = p.get("encoder_slip_prob", 0.0)
-        corrupted = []
-        for c in raw_counts:
-            val = c
-            if jitter > 0:
-                val += random.randint(-jitter, jitter)
-            if slip_prob > 0 and random.random() < slip_prob:
-                val = int(val * 0.98)
-            corrupted.append(val)
-        return corrupted
-
+    angular_vel_cov = [
+        1.0e6, 0.0, 0.0,
+        0.0, 1.0e6, 0.0,
+        0.0, 0.0, gyro_var
+    ]
+    linear_accel_cov = [
+        accel_var, 0.0, 0.0,
+        0.0, accel_var, 0.0,
+        0.0, 0.0, accel_var
+    ]
+    return angular_vel_cov, linear_accel_cov
 
 def compute_crc16_ccitt(data: bytes, init_val: int = 0xFFFF) -> int:
     crc = init_val
@@ -721,9 +319,9 @@ class Stm32Simulator(Node):
         self.declare_parameter('control_frequency_hz', 100.0)
         self.declare_parameter('telemetry_frequency_hz', 50.0)
         self.declare_parameter('encoder_counts_per_revolution', 2048.0)
-        self.declare_parameter('motor_kp', 0.08)
-        self.declare_parameter('motor_ki', 0.25)
-        self.declare_parameter('motor_kd', 0.0005)
+        self.declare_parameter('motor_kp', 1.0)
+        self.declare_parameter('motor_ki', 0.0)
+        self.declare_parameter('motor_kd', 0.0)
         self.declare_parameter('command_topic', 'stm32_cmd_vel')
         self.declare_parameter('joint_states_topic', 'joint_states')
         self.declare_parameter('imu_input_topic', 'imu')
@@ -758,6 +356,7 @@ class Stm32Simulator(Node):
         self.encoder_counts = [0] * 4
         self.last_encoder_counts = [None] * 4
         self.last_imu_time = self.get_clock().now()
+        self._last_imu_pub_time = None
         self.last_imu = Imu()
         self.imu_received = False
         self.x_m = 0.0
@@ -770,15 +369,11 @@ class Stm32Simulator(Node):
             EncoderPll(bandwidth_rad_s=20.0, counts_per_revolution=self.encoder_counts_per_revolution)
             for _ in range(4)
         ]
-        self.imu_calibrator = ImuCalibrator()
-        self.noise_model = SensorNoiseModel("realistic")
         self.raw_accel_sample = [0.0, 0.0, 9.80665]
         self.raw_gyro_sample = [0.0, 0.0, 0.0]
-        self.calib_accel_sample = [0.0, 0.0, 9.80665]
-        self.calib_gyro_sample = [0.0, 0.0, 0.0]
+        self.raw_mag_sample = [0.0, 20.0, -45.0]
         self.running_gyro_variance = 0.0001
         self.running_accel_variance = 0.0025
-        self.detected_face = ImuCalibrator.FACE_POS_Z
         self.is_stationary = True
         self.sim_orientation = None  # [roll_deg, pitch_deg, yaw_deg] or None
         self.serial_seq = 0
@@ -794,10 +389,8 @@ class Stm32Simulator(Node):
             Imu, self.imu_output_topic, 10)
         self.status_publisher = self.create_publisher(String, self.status_topic, 10)
         self.debug_publisher = self.create_publisher(String, 'debug/data', 10)
-        self.calib_cmd_sub = self.create_subscription(
-            String, 'calib/cmd', self._on_calib_command, 10)
-        self.calib_status_pub = self.create_publisher(
-            String, 'calib/status', 10)
+        self.config_cmd_sub = self.create_subscription(
+            String, 'config/cmd', self._on_config_command, 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.create_subscription(
@@ -889,151 +482,44 @@ class Stm32Simulator(Node):
     def _on_estop(self, message):
         self.estop_active = bool(message.data)
 
-    def _on_calib_command(self, message):
+    def _on_config_command(self, message):
         try:
             payload = json.loads(message.data)
-        except Exception:
-            payload = {"action": message.data}
+        except Exception as exc:
+            self.get_logger().error(f"Failed to parse config/cmd JSON: {exc}")
+            return
 
-        action = payload.get("action") or payload.get("routine") or "imu"
-        response = {"status": "ok", "action": action}
+        if "motor_kp" in payload:
+            val = payload["motor_kp"]
+            arr = val if isinstance(val, list) else [float(val)] * 4
+            for i in range(min(4, len(arr))):
+                self.speed_pids[i].kp = float(arr[i])
 
-        if action in ("start", "imu", "gyro"):
-            target_samples = int(payload.get("sample_count") or payload.get("target_samples") or 500)
-            self.imu_calibrator.start_gyro_calibration(target_samples=target_samples)
-            response["message"] = f"IMU gyro calibration initiated (target: {target_samples} samples)"
-            response["target_samples"] = target_samples
-            response["sample_count"] = 0
-        elif action == "accel_face":
-            face = int(payload.get("face", 0))
-            samples = int(payload.get("sample_count") or payload.get("target_samples") or 200)
-            self.imu_calibrator.start_accel_face(face, target_samples=samples)
-            response["message"] = f"IMU accel face {face} initiated"
-            response["target_samples"] = samples
-            response["sample_count"] = 0
-        elif action == "accel_compute":
-            ok, err = self.imu_calibrator.compute_accel_calibration()
-            response["success"] = ok
-            response["max_norm_error"] = err
-            response["accel_scale"] = self.imu_calibrator.accel_scale
-            response["accel_bias"] = self.imu_calibrator.accel_bias
-        elif action == "finish_gyro":
-            ok, drift = self.imu_calibrator.finish_gyro_calibration()
-            response["success"] = ok
-            response["residual_drift_rad_s"] = drift
-            response["gyro_bias"] = self.imu_calibrator.gyro_bias
-        elif action in ("toggle", "toggle_calib"):
-            target_state = payload.get("enabled", not self.imu_calibrator.calibration_enabled)
-            self.imu_calibrator.calibration_enabled = bool(target_state)
-            response["calibration_enabled"] = self.imu_calibrator.calibration_enabled
-            response["message"] = f"Calibration enabled: {self.imu_calibrator.calibration_enabled}"
-        elif action in ("reset", "reset_calib"):
-            self.imu_calibrator.reset()
-            self.imu_integrated_yaw_rad = 0.0
-            self.sim_orientation = None
-            response["message"] = "Calibration reset to defaults"
-            response["calibration_enabled"] = self.imu_calibrator.calibration_enabled
-            response["is_calibrated"] = False
-            response["sample_count"] = 0
-            response["target_samples"] = 0
-            response["progress_percent"] = 0
-            response["gyro_bias"] = self.imu_calibrator.gyro_bias
-            response["accel_scale"] = self.imu_calibrator.accel_scale
-            response["accel_bias"] = self.imu_calibrator.accel_bias
-        elif action in ("set_sim_orientation", "set_sim_pose"):
-            roll = float(payload.get("roll_deg", 0.0))
-            pitch = float(payload.get("pitch_deg", 0.0))
-            yaw = float(payload.get("yaw_deg", 0.0))
-            self.sim_orientation = [roll, pitch, yaw]
-            response["sim_orientation"] = self.sim_orientation
-            response["message"] = f"Simulated IMU orientation set to Roll={roll}°, Pitch={pitch}°, Yaw={yaw}°"
-        elif action in ("apply_params", "apply"):
-            if "gyro_bias" in payload:
-                self.imu_calibrator.gyro_bias = [float(x) for x in payload["gyro_bias"]]
-                self.imu_calibrator.gyro_calibrated = True
-            if "accel_scale" in payload:
-                self.imu_calibrator.accel_scale = [float(x) for x in payload["accel_scale"]]
-                self.imu_calibrator.accel_calibrated = True
-            if "accel_bias" in payload:
-                self.imu_calibrator.accel_bias = [float(x) for x in payload["accel_bias"]]
-                self.imu_calibrator.accel_calibrated = True
-            if "is_calibrated" in payload:
-                is_c = bool(payload["is_calibrated"])
-                self.imu_calibrator.accel_calibrated = is_c
-                self.imu_calibrator.gyro_calibrated = is_c
-            response["message"] = "Calibration parameters applied successfully"
-            response["accel_scale"] = self.imu_calibrator.accel_scale
-            response["accel_bias"] = self.imu_calibrator.accel_bias
-            response["gyro_bias"] = self.imu_calibrator.gyro_bias
-        elif action in ("noise", "set_noise", "noise_profile"):
-            profile = payload.get("profile", "realistic")
-            self.noise_model.set_profile(profile)
-            response["noise_profile"] = self.noise_model.profile_name
-            response["message"] = f"Noise profile set to: {self.noise_model.profile_name}"
-        elif action == "status":
-            response["calibration_enabled"] = self.imu_calibrator.calibration_enabled
-            response["is_calibrated"] = (self.imu_calibrator.gyro_calibrated or self.imu_calibrator.accel_calibrated)
-            response["sample_count"] = self.imu_calibrator.sample_count
-            response["target_samples"] = self.imu_calibrator.target_samples
-            response["noise_profile"] = self.noise_model.profile_name
-            response["gyro_bias"] = self.imu_calibrator.gyro_bias
-            response["accel_scale"] = self.imu_calibrator.accel_scale
-            response["accel_bias"] = self.imu_calibrator.accel_bias
-            response["detected_face"] = self.detected_face
-            response["is_stationary"] = self.is_stationary
-            response["raw_gyro_stddev"] = math.sqrt(max(0.0, self.running_gyro_variance))
-            response["raw_accel_stddev"] = math.sqrt(max(0.0, self.running_accel_variance))
-        elif action == "abort":
-            self.imu_calibrator.reset()
-            response["message"] = "Calibration aborted"
-            response["is_calibrated"] = False
-        elif action in ("pose_record", "record_pose"):
-            accel_sample = payload.get("accel_sample") or self.raw_accel_sample
-            ok = self.imu_calibrator.add_arbitrary_pose(accel_sample)
-            response["success"] = ok
-            response["pose_count"] = len(self.imu_calibrator.arbitrary_poses)
-            response["poses"] = self.imu_calibrator.arbitrary_poses
-            response["message"] = f"Recorded arbitrary pose {len(self.imu_calibrator.arbitrary_poses)}"
-        elif action in ("pose_compute", "compute_poses"):
-            ok, err = self.imu_calibrator.compute_multi_pose_calibration()
-            response["success"] = ok
-            response["max_norm_error"] = err
-            response["accel_scale"] = self.imu_calibrator.accel_scale
-            response["accel_bias"] = self.imu_calibrator.accel_bias
-            response["is_calibrated"] = self.imu_calibrator.accel_calibrated
-            response["pose_count"] = len(self.imu_calibrator.arbitrary_poses)
-        elif action in ("pose_clear", "clear_poses"):
-            self.imu_calibrator.arbitrary_poses = []
-            response["message"] = "Arbitrary poses cleared"
-            response["pose_count"] = 0
-        elif action == "encoder_calib":
-            true_dist = float(payload.get("true_distance_m", 1.0))
-            wheel_travel = [float(x) for x in payload.get("wheel_travel_m", [1.0, 1.0, 1.0, 1.0])]
-            self.imu_calibrator.calibrate_wheel_radii(true_dist, wheel_travel)
-            response["success"] = True
-            response["wheel_radii"] = self.imu_calibrator.wheel_radii
-            response["message"] = f"Calibrated wheel radii: {self.imu_calibrator.wheel_radii}"
-        elif action == "extrinsics_calib":
-            w_sq_1 = float(payload.get("w_sq_1", 1.0))
-            ax_1 = float(payload.get("ax_1", -0.05))
-            ay_1 = float(payload.get("ay_1", 0.0))
-            w_sq_2 = float(payload.get("w_sq_2", 4.0))
-            ax_2 = float(payload.get("ax_2", -0.20))
-            ay_2 = float(payload.get("ay_2", 0.0))
-            time_delay_sec = float(payload.get("time_delay_sec", payload.get("time_delay_ms", 12.5) / 1000.0))
-            ok, arm = self.imu_calibrator.compute_lever_arm(w_sq_1, ax_1, ay_1, w_sq_2, ax_2, ay_2)
-            self.imu_calibrator.time_delay_sec = time_delay_sec
-            response["success"] = ok
-            response["lever_arm"] = arm
-            response["time_delay_sec"] = time_delay_sec
-            response["time_delay_ms"] = round(time_delay_sec * 1000.0, 1)
-            response["message"] = f"Computed lever arm: {arm}, latency: {round(time_delay_sec * 1000.0, 1)}ms"
-        else:
-            response["status"] = "unknown_command"
+        if "motor_ki" in payload:
+            val = payload["motor_ki"]
+            arr = val if isinstance(val, list) else [float(val)] * 4
+            for i in range(min(4, len(arr))):
+                self.speed_pids[i].ki = float(arr[i])
 
-        resp_msg = String()
-        resp_msg.data = json.dumps(response)
-        self.calib_status_pub.publish(resp_msg)
+        if "motor_kd" in payload:
+            val = payload["motor_kd"]
+            arr = val if isinstance(val, list) else [float(val)] * 4
+            for i in range(min(4, len(arr))):
+                self.speed_pids[i].kd = float(arr[i])
+
+        if "kalman_q" in payload:
+            val = payload["kalman_q"]
+            arr = val if isinstance(val, list) else [float(val)] * 4
+            for i in range(min(4, len(arr))):
+                self.wheel_filters[i].process_noise = float(arr[i])
+
+        if "kalman_r" in payload:
+            val = payload["kalman_r"]
+            arr = val if isinstance(val, list) else [float(val)] * 4
+            for i in range(min(4, len(arr))):
+                self.wheel_filters[i].measurement_noise = float(arr[i])
+
+        self.get_logger().info(f"Updated PID/Kalman config from config/cmd: {payload}")
 
     def _on_joint_state(self, message):
         if isinstance(message, (bytes, bytearray, memoryview)):
@@ -1125,55 +611,16 @@ class Stm32Simulator(Node):
                 float(message.angular_velocity.y),
                 float(message.angular_velocity.z),
             ]
-        if self.simulation_mode:
-            raw_a, raw_w = self.noise_model.corrupt_imu(raw_a, raw_w)
-
         self.raw_accel_sample = list(raw_a)
         self.raw_gyro_sample = list(raw_w)
-
-        face, stat = ImuCalibrator.detect_current_face(raw_a)
-        if face is not None:
-            self.detected_face = face
-        self.is_stationary = stat
 
         # Running variance update
         gyro_norm_sq = raw_w[0]**2 + raw_w[1]**2 + raw_w[2]**2
         self.running_gyro_variance = 0.95 * self.running_gyro_variance + 0.05 * gyro_norm_sq
         accel_err = (math.sqrt(raw_a[0]**2 + raw_a[1]**2 + raw_a[2]**2) - STANDARD_GRAVITY_MPS2)**2
         self.running_accel_variance = 0.95 * self.running_accel_variance + 0.05 * accel_err
-
-        if self.imu_calibrator.state == ImuCalibrator.CALIB_GYRO_SAMPLING:
-            if self.is_stationary:
-                self.imu_calibrator.update_gyro_sample(raw_w)
-                if self.imu_calibrator.sample_count >= self.imu_calibrator.target_samples:
-                    ok, drift = self.imu_calibrator.finish_gyro_calibration()
-                    resp = {
-                        "status": "success" if ok else "failed",
-                        "action": "gyro_completed",
-                        "sample_count": self.imu_calibrator.sample_count,
-                        "target_samples": self.imu_calibrator.target_samples,
-                        "progress_percent": 100,
-                        "is_calibrated": self.imu_calibrator.gyro_calibrated,
-                        "gyro_bias": self.imu_calibrator.gyro_bias,
-                        "residual_drift_rad_s": drift,
-                    }
-                    m = String()
-                    m.data = json.dumps(resp)
-                    self.calib_status_pub.publish(m)
-        elif self.imu_calibrator.state == ImuCalibrator.CALIB_ACCEL_SAMPLING:
-            if self.is_stationary:
-                self.imu_calibrator.update_accel_sample(raw_a)
-                if self.imu_calibrator.sample_count >= self.imu_calibrator.target_samples:
-                    self.imu_calibrator.finish_accel_face()
-                    resp = {
-                        "status": "face_completed",
-                        "face": self.imu_calibrator.current_stage,
-                        "face_completed": self.imu_calibrator.face_completed,
-                        "progress_percent": 100,
-                    }
-                    m = String()
-                    m.data = json.dumps(resp)
-                    self.calib_status_pub.publish(m)
+        # Simple stationary detection: low gyro and near-1g accel
+        self.is_stationary = (gyro_norm_sq < 0.01 and accel_err < 0.25)
 
     def _message_stamp_to_sec(self, message):
         stamp = message.header.stamp
@@ -1214,9 +661,8 @@ class Stm32Simulator(Node):
             feedforward = target / self.max_wheel_speed_rad_s
             command = max(-1.0, min(1.0, feedforward + feedback))
             self.motor_commands[index] = command
-            # Send the actual target wheel speed to Gazebo (Gazebo applies its own physics)
             message = Float64()
-            message.data = target  # Gazebo joint velocity controller expects rad/s
+            message.data = command * self.max_wheel_speed_rad_s
             self.actuator_publishers[index].publish(message)
 
     def _telemetry_step(self):
@@ -1248,12 +694,25 @@ class Stm32Simulator(Node):
         self._publish_odometry(stamp, (vx, vy, wz))
         self._publish_imu(stamp)
         self._publish_status('estop' if self.estop_active else 'ok')
+
+        # Cập nhật từ trường mô phỏng 3 trục theo góc yaw thân xe + nhiễu nhẹ cảm biến (~0.25 uT)
+        cos_yaw = math.cos(self.yaw_rad)
+        sin_yaw = math.sin(self.yaw_rad)
+        mag_noise_std = 0.25  # uT
+        self.raw_mag_sample = [
+            round(20.0 * cos_yaw + random.gauss(0.0, mag_noise_std), 2),
+            round(-20.0 * sin_yaw + random.gauss(0.0, mag_noise_std), 2),
+            round(-45.0 + random.gauss(0.0, mag_noise_std), 2),
+        ]
         
         debug_data = {
             'raw_wheel_speed_rad_s': self.raw_wheel_speeds,
             'filtered_wheel_speed_rad_s': self.measured_wheel_speeds,
             'target_wheel_speed_rad_s': self.target_wheel_speeds,
             'motor_output': self.motor_commands,
+            'imu_accel_xyz': self.raw_accel_sample,
+            'imu_gyro_xyz': self.raw_gyro_sample,
+            'imu_mag_xyz': getattr(self, 'raw_mag_sample', [0.0, 20.0, -45.0]),
             'imu_quaternion_xyzw': [
                 self.last_imu.orientation.x,
                 self.last_imu.orientation.y,
@@ -1266,26 +725,12 @@ class Stm32Simulator(Node):
             'cmd_vx_mps': self.command[0],
             'cmd_vy_mps': self.command[1],
             'cmd_wz_rad_s': self.command[2],
-            'calibration_enabled': self.imu_calibrator.calibration_enabled,
-            'is_calibrated': (self.imu_calibrator.gyro_calibrated or self.imu_calibrator.accel_calibrated),
-            'calib_sample_count': self.imu_calibrator.sample_count,
-            'calib_target_samples': self.imu_calibrator.target_samples,
-            'calib_progress_percent': int((self.imu_calibrator.sample_count / max(1, self.imu_calibrator.target_samples)) * 100) if self.imu_calibrator.state in (1, 2) else (100 if (self.imu_calibrator.gyro_calibrated) else 0),
-            'noise_profile': self.noise_model.profile_name,
-            'detected_face': self.detected_face,
+            'noise_profile': 'gazebo_native',
             'is_stationary': self.is_stationary,
             'raw_gyro_stddev': math.sqrt(max(0.0, self.running_gyro_variance)),
             'raw_accel_stddev': math.sqrt(max(0.0, self.running_accel_variance)),
-            'gyro_bias': self.imu_calibrator.gyro_bias,
-            'accel_scale': self.imu_calibrator.accel_scale,
-            'accel_bias': self.imu_calibrator.accel_bias,
             'imu_integrated_yaw_deg': round(math.degrees(self.imu_integrated_yaw_rad), 2),
-            'arbitrary_pose_count': len(self.imu_calibrator.arbitrary_poses),
-            'wheel_radii': self.imu_calibrator.wheel_radii,
-            'lever_arm': self.imu_calibrator.lever_arm,
-            'time_delay_ms': round(getattr(self.imu_calibrator, 'time_delay_sec', 0.0125) * 1000.0, 1),
-            'encoder_calibrated': self.imu_calibrator.encoder_calibrated,
-            'extrinsics_calibrated': self.imu_calibrator.extrinsics_calibrated,
+            'time_delay_ms': 12.5,
             'sim_orientation': self.sim_orientation,
         }
         msg = String()
@@ -1349,9 +794,9 @@ class Stm32Simulator(Node):
             self, 'raw_gyro_sample',
             [self.last_imu.angular_velocity.x, self.last_imu.angular_velocity.y, self.last_imu.angular_velocity.z]
         )
-        calib_accel, calib_gyro = self.imu_calibrator.apply(raw_accel, raw_gyro)
-        self.calib_accel_sample = list(calib_accel)
-        self.calib_gyro_sample = list(calib_gyro)
+        # BNO08x has internal sensor fusion & calibration, no external 6-face AN4508 or gyro drift filter
+        calib_accel = list(raw_accel)
+        calib_gyro = list(raw_gyro)
 
         message.angular_velocity.x = float(calib_gyro[0])
         message.angular_velocity.y = float(calib_gyro[1])
@@ -1360,9 +805,16 @@ class Stm32Simulator(Node):
         message.linear_acceleration.y = float(calib_accel[1])
         message.linear_acceleration.z = float(calib_accel[2])
 
-        dt_sec = 1.0 / self.telemetry_frequency_hz
+        # Measured real dt from clock (Bug 5 fix)
+        now_sec = self.get_clock().now().nanoseconds * 1e-9
+        if self._last_imu_pub_time is not None:
+            dt_sec = max(1e-4, min(1.0, now_sec - self._last_imu_pub_time))
+        else:
+            dt_sec = 1.0 / self.telemetry_frequency_hz
+        self._last_imu_pub_time = now_sec
+
         self.imu_integrated_yaw_rad += float(calib_gyro[2]) * dt_sec
-        ang_cov, lin_cov = self.imu_calibrator.compute_covariances(dt_sec)
+        ang_cov, lin_cov = compute_imu_covariances(dt_sec)
         message.orientation_covariance = [
             1.0e6, 0.0, 0.0,
             0.0, 1.0e6, 0.0,

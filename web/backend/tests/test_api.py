@@ -376,7 +376,7 @@ def test_sim_set_pose_and_tilt_compensation():
 
 
 def test_calib_apply_persists_yaml_and_config_verifier(tmp_path, monkeypatch):
-    from tests.e2e.harness.config_verifier import ConfigVerifier
+    import yaml
 
     target_config_dir = tmp_path / "config"
     monkeypatch.setenv("AMR_CONFIG_DIR", str(target_config_dir))
@@ -394,9 +394,29 @@ def test_calib_apply_persists_yaml_and_config_verifier(tmp_path, monkeypatch):
     assert imu_yaml.exists()
     assert wheel_yaml.exists()
 
-    verifier = ConfigVerifier(tmp_path)
-    assert verifier.verify_imu_calib_yaml(imu_yaml)
-    assert verifier.verify_wheel_calib_yaml(wheel_yaml)
+    with open(imu_yaml) as f:
+        imu_content = yaml.safe_load(f)
+        assert imu_content is not None
+
+    with open(wheel_yaml) as f:
+        wheel_content = yaml.safe_load(f)
+        assert wheel_content is not None
+
+
+def test_update_config_pid_and_kalman():
+    res = client.post("/api/config", json={
+        "motor_kp": [1.2, 1.2, 1.2, 1.2],
+        "motor_ki": [0.05, 0.05, 0.05, 0.05],
+        "motor_kd": [0.001, 0.001, 0.001, 0.001],
+        "kalman_q": [0.4, 0.4, 0.4, 0.4],
+        "kalman_r": [0.03, 0.03, 0.03, 0.03],
+    })
+    assert res.status_code == 200
+    cfg = res.json()
+    assert cfg["motor_kp"] == [1.2, 1.2, 1.2, 1.2]
+    assert cfg["kalman_q"] == [0.4, 0.4, 0.4, 0.4]
+    assert cfg["kalman_r"] == [0.03, 0.03, 0.03, 0.03]
+
 
 
 

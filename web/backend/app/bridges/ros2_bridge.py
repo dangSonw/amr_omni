@@ -94,6 +94,7 @@ class Ros2Bridge(BaseRobotBridge):
         self.spin_thread: Optional[threading.Thread] = None
         self.running = False
         self.start_time = time.time()
+        self._data_lock = threading.Lock()  # Protects shared sensor data from ROS thread vs AsyncIO
 
         # Trạng thái kết nối và an toàn
         self.status_msg = "OK"
@@ -154,6 +155,7 @@ class Ros2Bridge(BaseRobotBridge):
         self.estop_pub = None
         self.goal_pub = None
         self.calib_cmd_pub = None
+        self.config_cmd_pub = None
         self.latest_calib_data: dict = {}
         self.calib_status_data: dict = {}
 
@@ -188,6 +190,7 @@ class Ros2Bridge(BaseRobotBridge):
         self.stm32_cmd_vel_pub = self.node.create_publisher(Twist, "stm32_cmd_vel", 10)
         self.estop_pub = self.node.create_publisher(Bool, "estop", 10)
         self.calib_cmd_pub = self.node.create_publisher(String, "calib/cmd", 10)
+        self.config_cmd_pub = self.node.create_publisher(String, "config/cmd", 10)
         if PoseStamped is not None:
             self.goal_pub = self.node.create_publisher(PoseStamped, "goal_pose", 10)
 
@@ -204,6 +207,12 @@ class Ros2Bridge(BaseRobotBridge):
             self.node.create_subscription(Imu, "imu", self._on_imu, qos_profile_sensor_data)
         self.node.create_subscription(String, "status", self._on_status, 10)
         self.node.create_subscription(String, "debug/data", self._on_debug_data, 10)
+        if Float32MultiArray is not None:
+            self.node.create_subscription(Float32MultiArray, "wheel_state", self._on_wheel_state, 10)
+        if Int32MultiArray is not None:
+            self.node.create_subscription(Int32MultiArray, "encoder_counts", self._on_encoder_counts, 10)
+        if DiagnosticArray is not None:
+            self.node.create_subscription(DiagnosticArray, "diagnostics", self._on_diagnostics, 10)
 
         # Subscribers - Giám sát an toàn Jetson Watchdog & stm32_bridge
         self.node.create_subscription(Bool, "safety_stop", self._on_safety_stop, 10)
@@ -281,6 +290,7 @@ class Ros2Bridge(BaseRobotBridge):
         msg = Bool()
         msg.data = bool(active)
         self.estop_pub.publish(msg)
+        stream_monitor.record("estop", f"active={active}")
         # Nếu estop kích hoạt, gửi ngay lập tức lệnh vận tốc 0
         if active:
             zero_twist = Twist()
@@ -369,12 +379,15 @@ class Ros2Bridge(BaseRobotBridge):
         )
 
     def get_lidar_telemetry(self) -> LidarTelemetry:
+        with self._data_lock:
+            ranges = list(self.lidar_ranges)
+            points = list(self.lidar_points)
         return LidarTelemetry(
-            ranges=self.lidar_ranges,
-            points=self.lidar_points,
+            ranges=ranges,
+            points=points,
             angle_min=-math.pi,
             angle_max=math.pi,
-            angle_increment=(2.0 * math.pi / max(1, len(self.lidar_ranges))),
+            angle_increment=(2.0 * math.pi / max(1, len(ranges))),
             range_min=0.12,
             range_max=12.0,
         )
@@ -394,6 +407,19 @@ class Ros2Bridge(BaseRobotBridge):
 
     def update_config(self, config: RobotConfig) -> RobotConfig:
         self.config = config
+        if self.node and self.running and getattr(self, "config_cmd_pub", None):
+            payload = {
+                "motor_kp": config.motor_kp,
+                "motor_ki": config.motor_ki,
+                "motor_kd": config.motor_kd,
+                "kalman_q": getattr(config, "kalman_q", [0.5, 0.5, 0.5, 0.5]),
+                "kalman_r": getattr(config, "kalman_r", [0.04, 0.04, 0.04, 0.04]),
+            }
+            msg = String()
+            msg.data = json.dumps(payload)
+            self.config_cmd_pub.publish(msg)
+            stream_monitor.record("config_cmd", f"kp={config.motor_kp}")
+            logger.info(f"Published config to 'config/cmd': {payload}")
         return self.config
 
     # Alias tiện ích
@@ -420,8 +446,9 @@ class Ros2Bridge(BaseRobotBridge):
                 ranges.append(0.0)
             angle += msg.angle_increment
 
-        self.lidar_ranges = ranges
-        self.lidar_points = points
+        with self._data_lock:
+            self.lidar_ranges = ranges
+            self.lidar_points = points
         if hasattr(self, "grid_planner") and self.grid_planner and points:
             self.grid_planner.add_scan(self.odom_x, self.odom_y, self.odom_theta, points)
             if getattr(self.grid_planner, "last_matched_pose", None):
@@ -537,6 +564,7 @@ class Ros2Bridge(BaseRobotBridge):
             data = json.loads(msg.data)
             self.calib_status_data = data
             self.latest_calib_data.update(data)
+            stream_monitor.record("calib_status", f"status={data.get('status', 'ok')}")
         except Exception as e:
             logger.debug(f"Error parsing calib/status: {e}")
 
@@ -545,6 +573,8 @@ class Ros2Bridge(BaseRobotBridge):
             msg = String()
             msg.data = json.dumps(payload)
             self.calib_cmd_pub.publish(msg)
+            cmd_type = payload.get("cmd") or payload.get("action", "unknown")
+            stream_monitor.record("calib_cmd", f"cmd={cmd_type}")
 
     def _on_status(self, msg: String):
         self.status_msg = str(msg.data)
@@ -557,12 +587,13 @@ class Ros2Bridge(BaseRobotBridge):
 
     def _on_safety_stop(self, msg: Bool):
         self.safety_stop = bool(msg.data)
+        stream_monitor.record("safety_stop", f"stop={msg.data}")
 
     def _on_safe_cmd_vel(self, msg: Twist):
         stream_monitor.record("jetson_cmd_vel", f"safe: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
 
     def _on_stm32_cmd_vel(self, msg: Twist):
-        stream_monitor.record("jetson_cmd_vel", f"stm32: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
+        stream_monitor.record("stm32_cmd_vel", f"stm32: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
 
     def _on_map(self, msg: OccupancyGrid):
         try:
@@ -598,6 +629,7 @@ class Ros2Bridge(BaseRobotBridge):
                     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 _, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
                 self.latest_camera_frame = buf.tobytes()
+            stream_monitor.record("camera_rgb", f"{width}x{height} {msg.encoding}")
         except Exception as e:
             logger.debug(f"Lỗi xử lý ảnh camera RGB: {e}")
 
@@ -628,6 +660,7 @@ class Ros2Bridge(BaseRobotBridge):
                 arr = np.frombuffer(msg.data, dtype=np.uint8).reshape((height, width, 3))
                 _, buf = cv2.imencode('.jpg', arr, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
                 self.latest_depth_frame = buf.tobytes()
+            stream_monitor.record("camera_depth", f"{width}x{height} {msg.encoding}")
         except Exception as e:
             logger.debug(f"Lỗi xử lý ảnh camera Depth: {e}")
 

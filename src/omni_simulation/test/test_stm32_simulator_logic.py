@@ -3,14 +3,15 @@ import unittest
 
 from omni_simulation.stm32_simulator import (
     EncoderPll,
-    ImuCalibrator,
+    SimplePID,
+    ScalarKalman,
     compute_crc16_ccitt,
     serialize_serial_frame,
     deserialize_serial_frame,
+    compute_imu_covariances,
     CMD_CALIB_TRIGGER_IMU,
     RESP_ACK_NACK,
     STANDARD_GRAVITY_MPS2,
-    MAX_GYRO_DRIFT_RAD_S,
     DEFAULT_INFLATION_ALPHA,
 )
 
@@ -69,60 +70,9 @@ class TestEncoderPll(unittest.TestCase):
         self.assertTrue(math.isfinite(vel))
 
 
-class TestImuCalibrator(unittest.TestCase):
-    def setUp(self):
-        self.calib = ImuCalibrator()
-
-    def test_gyro_bias_nulling(self):
-        self.assertTrue(self.calib.start_gyro_calibration(target_samples=200))
-        # Feed stationary samples with constant bias [0.01, -0.02, 0.005] + tiny Gaussian noise
-        true_bias = [0.01, -0.02, 0.005]
-        for step in range(200):
-            noise = 0.0001 * math.sin(step)
-            sample = [true_bias[0] + noise, true_bias[1] - noise, true_bias[2] + noise]
-            self.assertTrue(self.calib.update_gyro_sample(sample))
-
-        ok, residual_drift = self.calib.finish_gyro_calibration()
-        self.assertTrue(ok)
-        self.assertLess(residual_drift, MAX_GYRO_DRIFT_RAD_S)
-        self.assertAlmostEqual(self.calib.gyro_bias[0], true_bias[0], places=3)
-        self.assertAlmostEqual(self.calib.gyro_bias[1], true_bias[1], places=3)
-        self.assertAlmostEqual(self.calib.gyro_bias[2], true_bias[2], places=3)
-
-    def test_gyro_motion_rejection(self):
-        self.assertTrue(self.calib.start_gyro_calibration(target_samples=200))
-        # Feed high-motion samples (> MAX_GYRO_STATIC_VARIANCE)
-        for step in range(100):
-            sample = [math.sin(step * 0.5), math.cos(step * 0.5), 0.0]
-            if not self.calib.update_gyro_sample(sample):
-                break
-        self.assertEqual(self.calib.state, ImuCalibrator.CALIB_FAILED_MOTION)
-
-    def test_accel_six_face_calibration(self):
-        g = STANDARD_GRAVITY_MPS2
-        faces = [
-            (ImuCalibrator.FACE_POS_X, [g, 0.0, 0.0]),
-            (ImuCalibrator.FACE_NEG_X, [-g, 0.0, 0.0]),
-            (ImuCalibrator.FACE_POS_Y, [0.0, g, 0.0]),
-            (ImuCalibrator.FACE_NEG_Y, [0.0, -g, 0.0]),
-            (ImuCalibrator.FACE_POS_Z, [0.0, 0.0, g]),
-            (ImuCalibrator.FACE_NEG_Z, [0.0, 0.0, -g]),
-        ]
-        for face_id, nominal in faces:
-            self.assertTrue(self.calib.start_accel_face(face_id, target_samples=50))
-            for _ in range(50):
-                self.assertTrue(self.calib.update_accel_sample(nominal))
-            self.assertTrue(self.calib.finish_accel_face())
-
-        ok, max_error = self.calib.compute_accel_calibration()
-        self.assertTrue(ok)
-        self.assertLess(max_error, 0.05)
-        for i in range(3):
-            self.assertAlmostEqual(self.calib.accel_scale[i], 1.0, places=2)
-            self.assertAlmostEqual(self.calib.accel_bias[i], 0.0, places=2)
-
+class TestImuCovariances(unittest.TestCase):
     def test_covariance_inflation_and_bounds(self):
-        ang_cov, lin_cov = self.calib.compute_covariances(dt_sec=0.02)
+        ang_cov, lin_cov = compute_imu_covariances(dt_sec=0.02)
         # 3x3 diagonal check
         self.assertEqual(ang_cov[0], 1.0e6)  # Unmeasured roll
         self.assertEqual(ang_cov[4], 1.0e6)  # Unmeasured pitch
@@ -163,58 +113,41 @@ class TestSerialProtocol(unittest.TestCase):
         self.assertEqual(consumed, 0)
 
 
-class TestCalibrationFeatures(unittest.TestCase):
-    def test_calibration_bypass_toggle(self):
-        calib = ImuCalibrator()
-        calib.gyro_bias = [0.05, -0.05, 0.05]
-        calib.accel_scale = [1.1, 0.9, 1.05]
-        calib.accel_bias = [0.2, -0.3, 0.4]
-        calib.gyro_calibrated = True
-        calib.accel_calibrated = True
 
-        raw_a = [0.0, 0.0, 9.80665]
-        raw_w = [0.05, -0.05, 0.05]
+class TestPIDAndKalmanConfig(unittest.TestCase):
+    def test_pid_passthrough_default(self):
+        pid = SimplePID()
+        self.assertEqual(pid.kp, 1.0)
+        self.assertEqual(pid.ki, 0.0)
+        self.assertEqual(pid.kd, 0.0)
+        self.assertTrue(pid.is_passthrough())
 
-        # Enabled: bias is cancelled
-        calib.calibration_enabled = True
-        ca, cw = calib.apply(raw_a, raw_w)
-        self.assertAlmostEqual(cw[0], 0.0)
-        self.assertAlmostEqual(cw[1], 0.0)
-        self.assertAlmostEqual(cw[2], 0.0)
+        # In passthrough, update() returns 0.0 (feedback is 0.0, feedforward handles command directly)
+        output = pid.update(setpoint=10.0, measurement=5.0, dt=0.01)
+        self.assertEqual(output, 0.0)
 
-        # Bypassed: raw data passes through untouched
-        calib.calibration_enabled = False
-        ca_raw, cw_raw = calib.apply(raw_a, raw_w)
-        self.assertEqual(ca_raw, raw_a)
-        self.assertEqual(cw_raw, raw_w)
+    def test_pid_active_after_tuning(self):
+        pid = SimplePID()
+        pid.set_tunings(kp=0.5, ki=0.1, kd=0.01)
+        self.assertFalse(pid.is_passthrough())
 
-    def test_six_face_detection(self):
-        g = STANDARD_GRAVITY_MPS2
-        faces = [
-            (ImuCalibrator.FACE_POS_Z, [0.0, 0.0, g]),
-            (ImuCalibrator.FACE_NEG_Z, [0.0, 0.0, -g]),
-            (ImuCalibrator.FACE_POS_X, [g, 0.0, 0.0]),
-            (ImuCalibrator.FACE_NEG_X, [-g, 0.0, 0.0]),
-            (ImuCalibrator.FACE_POS_Y, [0.0, g, 0.0]),
-            (ImuCalibrator.FACE_NEG_Y, [0.0, -g, 0.0]),
-        ]
-        for expected_face, nominal in faces:
-            detected, is_stat = ImuCalibrator.detect_current_face(nominal)
-            self.assertEqual(detected, expected_face)
-            self.assertTrue(is_stat)
+        # Error = 10 - 5 = 5.0 -> output > 0
+        output = pid.update(setpoint=10.0, measurement=5.0, dt=0.01)
+        self.assertGreater(output, 0.0)
 
-    def test_sensor_noise_model(self):
-        from omni_simulation.stm32_simulator import SensorNoiseModel
-        noise = SensorNoiseModel("clean")
-        ca, cw = noise.corrupt_imu([0.0, 0.0, 9.80665], [0.0, 0.0, 0.0])
-        self.assertEqual(ca, [0.0, 0.0, 9.80665])
-        self.assertEqual(cw, [0.0, 0.0, 0.0])
+    def test_scalar_kalman_set_noise(self):
+        kalman = ScalarKalman(process_noise=0.5, measurement_noise=0.04)
+        self.assertEqual(kalman.process_noise, 0.5)
+        self.assertEqual(kalman.measurement_noise, 0.04)
 
-        noise.set_profile("realistic")
-        ca2, cw2 = noise.corrupt_imu([0.0, 0.0, 9.80665], [0.0, 0.0, 0.0])
-        # Realistic profile has non-zero gyro bias
-        self.assertNotEqual(cw2, [0.0, 0.0, 0.0])
-        self.assertNotEqual(ca2, [0.0, 0.0, 9.80665])
+        kalman.set_noise(process_noise=0.1, measurement_noise=0.01)
+        self.assertEqual(kalman.process_noise, 0.1)
+        self.assertEqual(kalman.measurement_noise, 0.01)
+
+        with self.assertRaises(ValueError):
+            kalman.set_noise(-1.0, 0.01)
+        with self.assertRaises(ValueError):
+            kalman.set_noise(0.1, 0.0)
 
 
 if __name__ == '__main__':

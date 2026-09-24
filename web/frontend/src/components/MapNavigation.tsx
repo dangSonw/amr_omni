@@ -127,6 +127,19 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
 
   const viewAngleRad = mapMode === "heading-up" ? robotTheta - Math.PI / 2 : 0.0;
 
+  // Traversed trajectory history to form explored free space corridor
+  const trajectoryRef = useRef<[number, number][]>([]);
+
+  useEffect(() => {
+    const last = trajectoryRef.current[trajectoryRef.current.length - 1];
+    if (!last || Math.hypot(robotX - last[0], robotY - last[1]) > 0.08) {
+      trajectoryRef.current.push([robotX, robotY]);
+      if (trajectoryRef.current.length > 500) {
+        trajectoryRef.current.shift();
+      }
+    }
+  }, [robotX, robotY]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -138,8 +151,8 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     const cx = width / 2 + offset.x;
     const cy = height / 2 + offset.y;
 
-    // Background paper tone
-    ctx.fillStyle = "#ece7e1";
+    // 1. Unexplored / Unknown Space: Warm light gray background per web theme
+    ctx.fillStyle = "#e2ddd5";
     ctx.fillRect(0, 0, width, height);
 
     ctx.save();
@@ -150,8 +163,8 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       ctx.translate(-cx, -cy);
     }
 
-    // Grid (1m)
-    ctx.strokeStyle = "#dcd5cc";
+    // Technical grid (1m lines) in subtle warm tone
+    ctx.strokeStyle = "#d6d0c6";
     ctx.lineWidth = 1;
     const step = mapScale;
     for (let x = cx % step; x < width * 2; x += step) {
@@ -167,9 +180,9 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       ctx.stroke();
     }
 
-    // Axes
-    ctx.strokeStyle = "#818181";
-    ctx.lineWidth = 1.5;
+    // Coordinate Axes (subtle)
+    ctx.strokeStyle = "#b5afa6";
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.moveTo(cx, -height);
     ctx.lineTo(cx, height * 2);
@@ -177,9 +190,80 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     ctx.lineTo(width * 2, cy);
     ctx.stroke();
 
-    // Persistent Obstacles
+    // 2. Explored Free Space: Pure white corridors along traversed trajectory
+    if (trajectoryRef.current.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = "#ffffff";
+      ctx.fillStyle = "#ffffff";
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(16, 0.75 * mapScale);
+      ctx.beginPath();
+      trajectoryRef.current.forEach(([tx, ty], idx) => {
+        const px = cx + tx * mapScale;
+        const py = cy - ty * mapScale;
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Explored circular area around current robot position
+    const currPx = cx + robotX * mapScale;
+    const currPy = cy - robotY * mapScale;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(currPx, currPy, 0.55 * mapScale, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Active LiDAR Scan Polygon: Free space clearing + soft tinted beam
+    const cosR = Math.cos(robotTheta);
+    const sinR = Math.sin(robotTheta);
+
+    if (lidar?.points && lidar.points.length > 2) {
+      // Calculate world coordinates and angles for all lidar points
+      const scanPoints = lidar.points.map(([lx, ly]) => {
+        const wx = robotX + (cosR * lx - sinR * ly);
+        const wy = robotY + (sinR * lx + cosR * ly);
+        const px = cx + wx * mapScale;
+        const py = cy - wy * mapScale;
+        const angle = Math.atan2(wy - robotY, wx - robotX);
+        return { px, py, angle };
+      });
+
+      // Sort points angularly to create a continuous polygon
+      scanPoints.sort((a, b) => a.angle - b.angle);
+
+      // (a) Clear interior to pure white (free space explored by LiDAR)
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.moveTo(currPx, currPy);
+      for (const pt of scanPoints) {
+        ctx.lineTo(pt.px, pt.py);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // (b) Subtle soft tint for active LiDAR beam field-of-view (per user request)
+      ctx.fillStyle = "rgba(111, 194, 255, 0.14)";
+      ctx.strokeStyle = "rgba(111, 194, 255, 0.4)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(currPx, currPy);
+      for (const pt of scanPoints) {
+        ctx.lineTo(pt.px, pt.py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 4. Walls & Obstacles: Deep Black solid points & segments (matching reference photo)
+    ctx.fillStyle = "#18181b";
     if (persistentObstaclesRef.current.size > 0) {
-      ctx.fillStyle = "#10b981";
       persistentObstaclesRef.current.forEach(([ox, oy]) => {
         const px = cx + ox * mapScale;
         const py = cy - oy * mapScale;
@@ -187,12 +271,8 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       });
     }
 
-    // Live LiDAR Points
+    // Live LiDAR hits in solid black
     if (lidar?.points && lidar.points.length > 0) {
-      ctx.fillStyle = "#047857";
-      const cosR = Math.cos(robotTheta);
-      const sinR = Math.sin(robotTheta);
-
       for (const [lx, ly] of lidar.points) {
         const wx = robotX + (cosR * lx - sinR * ly);
         const wy = robotY + (sinR * lx + cosR * ly);
@@ -202,13 +282,13 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       }
     }
 
-    // Global Path
+    // 5. Sleek Global Path: Precision micro-dash with nodes
     const hasGlobalPath = paths?.global_path && paths.global_path.length > 1;
     if (hasGlobalPath) {
       ctx.save();
       ctx.strokeStyle = "#6fc2ff";
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
       ctx.beginPath();
       paths.global_path.forEach(([gx, gy], index) => {
         const px = cx + gx * mapScale;
@@ -217,24 +297,36 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
         else ctx.lineTo(px, py);
       });
       ctx.stroke();
+
+      // Micro waypoint nodes
+      ctx.fillStyle = "#6fc2ff";
+      ctx.setLineDash([]);
+      for (let i = 0; i < paths.global_path.length; i += 2) {
+        const [gx, gy] = paths.global_path[i];
+        const px = cx + gx * mapScale;
+        const py = cy - gy * mapScale;
+        ctx.beginPath();
+        ctx.arc(px, py, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     } else if (goal) {
       ctx.save();
       ctx.strokeStyle = "#6fc2ff";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
       ctx.beginPath();
-      ctx.moveTo(cx + robotX * mapScale, cy - robotY * mapScale);
+      ctx.moveTo(currPx, currPy);
       ctx.lineTo(cx + goal.x * mapScale, cy - goal.y * mapScale);
       ctx.stroke();
       ctx.restore();
     }
 
-    // Local Path
+    // 6. Sleek Local Path: Emerald accent curve
     if (paths?.local_path && paths.local_path.length > 1) {
       ctx.save();
-      ctx.strokeStyle = "#059669";
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       paths.local_path.forEach(([lx, ly], index) => {
         const px = cx + lx * mapScale;
@@ -246,64 +338,88 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       ctx.restore();
     }
 
-    // Goal
+    // 7. Sleek Goal Marker: Precision Reticle + Small Coordinate Tag
     if (goal) {
       const gx = cx + goal.x * mapScale;
       const gy = cy - goal.y * mapScale;
 
       ctx.save();
-      ctx.strokeStyle = "#e11d48";
-      ctx.fillStyle = "rgba(225, 29, 72, 0.2)";
-      ctx.lineWidth = 2;
+      // Outer radar pulse circle
+      ctx.strokeStyle = "rgba(111, 194, 255, 0.45)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(gx, gy, 9, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(gx, gy, 10, 0, Math.PI * 2);
       ctx.stroke();
 
+      // Precision Reticle Ring
+      ctx.strokeStyle = "#383838";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 4.5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 4 Crosshair Ticks (+)
+      ctx.beginPath();
+      ctx.moveTo(gx - 7, gy);
+      ctx.lineTo(gx - 4.5, gy);
+      ctx.moveTo(gx + 4.5, gy);
+      ctx.lineTo(gx + 7, gy);
+      ctx.moveTo(gx, gy - 7);
+      ctx.lineTo(gx, gy - 4.5);
+      ctx.moveTo(gx, gy + 4.5);
+      ctx.lineTo(gx, gy + 7);
+      ctx.stroke();
+
+      // Center Focal Dot
       ctx.fillStyle = "#e11d48";
       ctx.beginPath();
-      ctx.arc(gx, gy, 3.5, 0, Math.PI * 2);
+      ctx.arc(gx, gy, 1.5, 0, Math.PI * 2);
       ctx.fill();
 
+      // Refined Minimalist Coordinate Badge
+      const text = `[${goal.x.toFixed(2)}, ${goal.y.toFixed(2)}]`;
+      ctx.font = "bold 9px monospace";
+      const textWidth = ctx.measureText(text).width;
+      const tagX = gx + 9;
+      const tagY = gy - 9;
+
+      // Shadow
       ctx.fillStyle = "#383838";
-      ctx.font = "bold 10px monospace";
-      ctx.fillText(`[${goal.x}, ${goal.y}]`, gx + 10, gy + 4);
+      ctx.fillRect(tagX - 1, tagY + 1, textWidth + 6, 13);
+      // Box
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#383838";
+      ctx.lineWidth = 1;
+      ctx.fillRect(tagX - 2, tagY, textWidth + 6, 13);
+      ctx.strokeRect(tagX - 2, tagY, textWidth + 6, 13);
+      // Text
+      ctx.fillStyle = "#18181b";
+      ctx.fillText(text, tagX + 1, tagY + 9.5);
       ctx.restore();
     }
 
-    // Robot Chassis
-    const rx = cx + robotX * mapScale;
-    const ry = cy - robotY * mapScale;
+    // 8. Robot Chassis: Omni / Mecanum 4-Wheel Top-down view
+    const rx = currPx;
+    const ry = currPy;
     const radius = 0.16 * mapScale;
 
     ctx.save();
     ctx.translate(rx, ry);
     ctx.rotate(-robotTheta);
 
-    // FOV cone
-    const fovLength = 0.65 * mapScale;
-    const fovAngle = (45 * Math.PI) / 180;
-    ctx.fillStyle = "rgba(111, 194, 255, 0.25)";
-    ctx.beginPath();
-    ctx.moveTo(radius * 0.8, 0);
-    ctx.lineTo(fovLength, -fovLength * Math.tan(fovAngle * 0.5));
-    ctx.lineTo(fovLength, fovLength * Math.tan(fovAngle * 0.5));
-    ctx.closePath();
-    ctx.fill();
-
     // Chassis Box
     ctx.fillStyle = "#ffffff";
     ctx.strokeStyle = "#383838";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.rect(-radius, -radius, radius * 2, radius * 2);
+    ctx.roundRect(-radius, -radius, radius * 2, radius * 2, 2);
     ctx.fill();
     ctx.stroke();
 
-    // 4 Wheels
+    // 4 Corner Mecanum Wheels (black)
     const wheelW = radius * 0.45;
-    const wheelH = radius * 0.22;
-    ctx.fillStyle = "#383838";
+    const wheelH = radius * 0.24;
+    ctx.fillStyle = "#18181b";
     [
       [-radius, -radius],
       [radius - wheelW, -radius],
@@ -313,14 +429,21 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       ctx.fillRect(wx, wy, wheelW, wheelH);
     });
 
-    // Heading Arrow
+    // Center Badge
+    ctx.fillStyle = "#6fc2ff";
+    ctx.strokeStyle = "#383838";
+    ctx.lineWidth = 1;
+    ctx.fillRect(-radius * 0.35, -radius * 0.35, radius * 0.7, radius * 0.7);
+    ctx.strokeRect(-radius * 0.35, -radius * 0.35, radius * 0.7, radius * 0.7);
+
+    // Forward Directional Heading Arrow
     ctx.fillStyle = "#ff9538";
     ctx.strokeStyle = "#383838";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(radius + 8, 0);
-    ctx.lineTo(radius - 2, -5);
-    ctx.lineTo(radius - 2, 5);
+    ctx.moveTo(radius + 7, 0);
+    ctx.lineTo(radius - 1, -4);
+    ctx.lineTo(radius - 1, 4);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -328,15 +451,15 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     ctx.restore();
     ctx.restore();
 
-    // Compass
+    // 9. Compass (top-left)
     ctx.save();
-    const compassX = 32;
-    const compassY = 32;
-    const compassR = 16;
+    const compassX = 28;
+    const compassY = 28;
+    const compassR = 14;
 
     ctx.fillStyle = "#ffffff";
     ctx.strokeStyle = "#383838";
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.arc(compassX, compassY, compassR, 0, Math.PI * 2);
     ctx.fill();
@@ -347,17 +470,17 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
 
     ctx.fillStyle = "#e11d48";
     ctx.beginPath();
-    ctx.moveTo(0, -compassR + 3);
-    ctx.lineTo(3.5, 0);
-    ctx.lineTo(-3.5, 0);
+    ctx.moveTo(0, -compassR + 2.5);
+    ctx.lineTo(3, 0);
+    ctx.lineTo(-3, 0);
     ctx.closePath();
     ctx.fill();
 
     ctx.fillStyle = "#383838";
     ctx.beginPath();
-    ctx.moveTo(0, compassR - 3);
-    ctx.lineTo(3.5, 0);
-    ctx.lineTo(-3.5, 0);
+    ctx.moveTo(0, compassR - 2.5);
+    ctx.lineTo(3, 0);
+    ctx.lineTo(-3, 0);
     ctx.closePath();
     ctx.fill();
 
@@ -430,16 +553,16 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
         {/* Navigation State & Controls */}
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {navState === "navigating" && goal ? (
-            <div className="flex items-center gap-1 bg-canary border border-charcoal px-2 py-0.5 font-bold text-xs shadow-[-2px_2px_0px_#383838]">
-              <Target className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-1.5 bg-white border border-charcoal px-2 py-0.5 font-bold text-xs shadow-[-2px_2px_0px_#383838]">
+              <Target className="w-3.5 h-3.5 text-sky" />
               <span>
-                GOAL [{goal.x}, {goal.y}]
+                [{goal.x.toFixed(2)}, {goal.y.toFixed(2)}]
                 {distanceRemaining !== null && ` • ${distanceRemaining.toFixed(2)}m`}
               </span>
               <button
                 onClick={handleCancelNav}
-                className="ml-1 text-charcoal hover:text-rose-600"
-                title="Cancel"
+                className="ml-1 text-charcoal hover:text-rose-600 transition"
+                title="Cancel Goal"
               >
                 <XCircle className="w-3.5 h-3.5" />
               </button>
@@ -491,7 +614,7 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
       </div>
 
       {/* Canvas Box */}
-      <div className="relative flex-1 bg-[#ece7e1] border-2 border-charcoal rounded-[2px] overflow-hidden flex items-center justify-center min-h-[420px]">
+      <div className="relative flex-1 bg-[#e2ddd5] border-2 border-charcoal rounded-[2px] overflow-hidden flex items-center justify-center min-h-[420px]">
         <canvas
           ref={canvasRef}
           width={720}

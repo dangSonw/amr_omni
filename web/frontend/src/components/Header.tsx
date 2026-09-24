@@ -24,7 +24,7 @@ export function Header({ status }: HeaderProps) {
             AMR OMNI
           </span>
           <span className="border border-charcoal bg-chalk px-1.5 py-0.5 text-[10px] font-semibold text-charcoal">
-            v1.0
+            v2.0
           </span>
           <span
             className={`border border-charcoal px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${

@@ -94,6 +94,167 @@
       <visual name="visual"><geometry><box><size>1.2 1.0 0.05</size></box></geometry><material><ambient>0.05 0.45 0.52 1</ambient><diffuse>0.08 0.78 0.82 1</diffuse><specular>0.35 0.65 0.7 1</specular></material></visual>
     </link></model>
 
+    <!-- ======================================================== -->
+    <!-- SLOPES & RAMPS (5 DEG, 10 DEG, 14 DEG)                     -->
+    <!-- ======================================================== -->
+    <!-- Gentle Ramp (5 degrees / 0.087 rad) with top platform -->
+    <model name="ramp_gentle_5deg">
+      <static>true</static>
+      <pose>-1.2 3.6 0.09 0 0.0873 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>2.2 1.2 0.03</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>2.2 1.2 0.03</size></box></geometry>
+          <material><ambient>0.25 0.32 0.42 1</ambient><diffuse>0.35 0.48 0.65 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="ramp_gentle_platform">
+      <static>true</static>
+      <pose>-0.05 3.6 0.09 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.1 1.2 0.18</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.1 1.2 0.18</size></box></geometry>
+          <material><ambient>0.20 0.28 0.38 1</ambient><diffuse>0.28 0.40 0.55 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Moderate Ramp (10 degrees / 0.174 rad) -->
+    <model name="ramp_moderate_10deg">
+      <static>true</static>
+      <pose>-1.0 -1.2 0.14 0 -0.1745 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.8 1.1 0.03</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.8 1.1 0.03</size></box></geometry>
+          <material><ambient>0.35 0.28 0.18 1</ambient><diffuse>0.65 0.48 0.25 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="ramp_moderate_platform">
+      <static>true</static>
+      <pose>-2.0 -1.2 0.14 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.9 1.1 0.28</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.9 1.1 0.28</size></box></geometry>
+          <material><ambient>0.30 0.22 0.14 1</ambient><diffuse>0.52 0.38 0.20 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Challenge Ramp (14 degrees / 0.244 rad) for torque/traction test -->
+    <model name="ramp_steep_14deg">
+      <static>true</static>
+      <pose>3.2 -0.2 0.18 0 0.2443 1.5708</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.6 1.0 0.03</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.6 1.0 0.03</size></box></geometry>
+          <material><ambient>0.42 0.15 0.15 1</ambient><diffuse>0.72 0.24 0.22 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ======================================================== -->
+    <!-- ROUGH TERRAIN / BUMPY SURFACE STRIP (8mm - 12mm BUMPS)   -->
+    <!-- ======================================================== -->
+    <!-- Low profile rumble strips to test suspension & IMU pitch/roll jolts -->
+    <model name="rough_terrain_strip">
+      <static>true</static>
+      <pose>0.6 0.0 0.005 0 0 0</pose>
+      <!-- Base bed for the rough test strip -->
+      <link name="strip_bed">
+        <collision name="bed_col"><geometry><box><size>1.6 1.4 0.01</size></box></geometry>
+          <surface><friction><ode><mu>0.9</mu><mu2>0.9</mu2></ode></friction></surface>
+        </collision>
+        <visual name="bed_vis"><geometry><box><size>1.6 1.4 0.01</size></box></geometry>
+          <material><ambient>0.18 0.18 0.20 1</ambient><diffuse>0.26 0.26 0.30 1</diffuse></material>
+        </visual>
+      </link>
+      <!-- Bumps / Ridges -->
+      <link name="ridge_1"><pose>-0.5 0 0.006 0 0 0</pose>
+        <collision name="c"><geometry><box><size>0.08 1.3 0.012</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.08 1.3 0.012</size></box></geometry>
+          <material><ambient>0.45 0.38 0.15 1</ambient><diffuse>0.85 0.70 0.20 1</diffuse></material>
+        </visual>
+      </link>
+      <link name="ridge_2"><pose>-0.25 0 0.005 0 0 0</pose>
+        <collision name="c"><geometry><box><size>0.07 1.3 0.010</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.07 1.3 0.010</size></box></geometry>
+          <material><ambient>0.45 0.38 0.15 1</ambient><diffuse>0.85 0.70 0.20 1</diffuse></material>
+        </visual>
+      </link>
+      <link name="ridge_3"><pose>0.0 0 0.006 0 0 0</pose>
+        <collision name="c"><geometry><box><size>0.08 1.3 0.012</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.08 1.3 0.012</size></box></geometry>
+          <material><ambient>0.45 0.38 0.15 1</ambient><diffuse>0.85 0.70 0.20 1</diffuse></material>
+        </visual>
+      </link>
+      <link name="ridge_4"><pose>0.25 0 0.005 0 0 0</pose>
+        <collision name="c"><geometry><box><size>0.07 1.3 0.010</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.07 1.3 0.010</size></box></geometry>
+          <material><ambient>0.45 0.38 0.15 1</ambient><diffuse>0.85 0.70 0.20 1</diffuse></material>
+        </visual>
+      </link>
+      <link name="ridge_5"><pose>0.5 0 0.004 0 0 0</pose>
+        <collision name="c"><geometry><box><size>0.06 1.3 0.008</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.06 1.3 0.008</size></box></geometry>
+          <material><ambient>0.45 0.38 0.15 1</ambient><diffuse>0.85 0.70 0.20 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ======================================================== -->
+    <!-- DIVERSE OBSTACLES: PALLETS, DRUMS & NARROW CORRIDOR      -->
+    <!-- ======================================================== -->
+    <!-- Warehouse Pallet Stack -->
+    <model name="pallet_stack"><static>true</static><pose>-3.5 0.2 0.35 0 0 0</pose><link name="link">
+      <collision name="collision"><geometry><box><size>1.2 0.9 0.7</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>1.2 0.9 0.7</size></box></geometry>
+        <material><ambient>0.32 0.24 0.16 1</ambient><diffuse>0.54 0.40 0.26 1</diffuse></material>
+      </visual>
+    </link></model>
+
+    <!-- Industrial Drums -->
+    <model name="industrial_drum_a"><static>true</static><pose>1.2 -3.8 0.42 0 0 0</pose><link name="link">
+      <collision name="collision"><geometry><cylinder><radius>0.28</radius><length>0.84</length></cylinder></geometry></collision>
+      <visual name="visual"><geometry><cylinder><radius>0.28</radius><length>0.84</length></cylinder></geometry>
+        <material><ambient>0.10 0.22 0.35 1</ambient><diffuse>0.15 0.42 0.65 1</diffuse></material>
+      </visual>
+    </link></model>
+    <model name="industrial_drum_b"><static>true</static><pose>1.8 -3.8 0.42 0 0 0</pose><link name="link">
+      <collision name="collision"><geometry><cylinder><radius>0.28</radius><length>0.84</length></cylinder></geometry></collision>
+      <visual name="visual"><geometry><cylinder><radius>0.28</radius><length>0.84</length></cylinder></geometry>
+        <material><ambient>0.35 0.18 0.10 1</ambient><diffuse>0.65 0.35 0.15 1</diffuse></material>
+      </visual>
+    </link></model>
+
+    <!-- Narrow Passage Partition Wall (tests 0.85m clearance doorway) -->
+    <model name="narrow_partition_wall"><static>true</static><pose>0.8 1.8 0.5 0 0 0</pose><link name="link">
+      <collision name="collision"><geometry><box><size>0.1 1.5 1.0</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.1 1.5 1.0</size></box></geometry>
+        <material><ambient>0.14 0.18 0.26 1</ambient><diffuse>0.20 0.28 0.40 1</diffuse></material>
+      </visual>
+    </link></model>
+
     <model name="lab_sign"><static>true</static><pose>0 4.88 1.55 0 0 0</pose><link name="link">
       <visual name="visual"><geometry><box><size>2.6 0.04 0.55</size></box></geometry><material><ambient>0.06 0.10 0.20 1</ambient><diffuse>0.10 0.18 0.34 1</diffuse></material></visual>
     </link></model>

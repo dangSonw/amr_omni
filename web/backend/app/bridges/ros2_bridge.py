@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
@@ -291,12 +292,19 @@ class Ros2Bridge(BaseRobotBridge):
         msg.data = bool(active)
         self.estop_pub.publish(msg)
         stream_monitor.record("estop", f"active={active}")
-        # Nếu estop kích hoạt, gửi ngay lập tức lệnh vận tốc 0
+        # Nếu estop kích hoạt, hủy ngay lập tức mục tiêu tự hành và gửi lệnh vận tốc 0
         if active:
+            self.active_goal = None
+            self.nav_state = "cancelled"
+            self.global_path = []
+            self.local_path = []
+            if hasattr(self, "mpc_controller") and self.mpc_controller:
+                self.mpc_controller.reset()
             zero_twist = Twist()
-            self.cmd_vel_pub.publish(zero_twist)
-            self.safe_cmd_vel_pub.publish(zero_twist)
-            self.stm32_cmd_vel_pub.publish(zero_twist)
+            for _ in range(3):
+                self.cmd_vel_pub.publish(zero_twist)
+                self.safe_cmd_vel_pub.publish(zero_twist)
+                self.stm32_cmd_vel_pub.publish(zero_twist)
 
     def reset_odometry(self) -> None:
         self.odom_x = 0.0
@@ -918,7 +926,19 @@ class Ros2Bridge(BaseRobotBridge):
         self.nav_state = "cancelled"
         self.global_path = []
         self.local_path = []
-        self._publish_twist(0.0, 0.0, 0.0)
+        if hasattr(self, "mpc_controller") and self.mpc_controller:
+            self.mpc_controller.reset()
+        # Gửi chuỗi xung vận tốc 0 đa cổng để phanh khẩn cấp lập tức
+        for _ in range(5):
+            self._publish_twist(0.0, 0.0, 0.0)
+            if self.node and self.cmd_vel_pub:
+                zero_twist = Twist()
+                self.cmd_vel_pub.publish(zero_twist)
+                if hasattr(self, "safe_cmd_vel_pub") and self.safe_cmd_vel_pub:
+                    self.safe_cmd_vel_pub.publish(zero_twist)
+                if hasattr(self, "stm32_cmd_vel_pub") and self.stm32_cmd_vel_pub:
+                    self.stm32_cmd_vel_pub.publish(zero_twist)
+            await asyncio.sleep(0.01)
         return True
 
     def get_nav_status(self) -> dict:

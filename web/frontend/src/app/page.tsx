@@ -92,6 +92,34 @@ export default function DashboardPage() {
       return { vx, vy, wz };
     };
 
+    const triggerEmergencyStop = async () => {
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+      }
+      activeKeysRef.current.clear();
+      currentTwistRef.current = { vx: 0, vy: 0, wz: 0 };
+      sendCmdVel(0, 0, 0);
+
+      // Cancel autonomous navigation goal immediately
+      try {
+        await fetch("/api/nav/cancel", { method: "POST" });
+      } catch {
+        // Ignored
+      }
+
+      // Activate E-Stop in backend bridge
+      try {
+        await fetch("/api/estop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: true }),
+        });
+      } catch {
+        // Ignored
+      }
+    };
+
     const stopMoving = () => {
       if (streamIntervalRef.current) {
         clearInterval(streamIntervalRef.current);
@@ -112,9 +140,16 @@ export default function DashboardPage() {
       e.preventDefault();
 
       if (key === " ") {
-        stopMoving();
+        triggerEmergencyStop();
         return;
       }
+
+      // If user starts manual driving, ensure E-stop is released
+      fetch("/api/estop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: false }),
+      }).catch(() => {});
 
       if (!activeKeysRef.current.has(key)) {
         activeKeysRef.current.add(key);

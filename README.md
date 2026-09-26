@@ -129,34 +129,31 @@ Hệ thống được chuẩn hóa trên môi trường **Ubuntu 24.04 LTS (ho�
 source install/ros2_jazzy/local_setup.bash
 ```
 
-### 5.3. Cài đặt ngoại vi phần cứng & Dịch vụ tự khởi động (Robot thật)
-Khi triển khai trên máy tính nhúng (Jetson / x86 SBC / Pi), thiết lập udev rules và systemd service:
-
-```bash
-# 1. Cài đặt udev rules nhận diện cố định /dev/stm32 và /dev/lidar
-sudo ./scripts/install.sh udev
-
-# 2. Cài đặt và kích hoạt dịch vụ tự khởi động khi bật nguồn
-sudo ./scripts/install.sh service
-
-# Hoặc cài đặt toàn bộ và kiểm tra trạng thái
-sudo ./scripts/install.sh all
-./scripts/install.sh status
-```
-
-### 5.4. Khởi chạy mô phỏng Gazebo
+### 5.3. Khởi chạy mô phỏng Gazebo
 Môi trường `amr_lab.sdf` tích hợp sẵn 3 loại dốc (5°, 10°, 14°), dải gờ giảm tốc thử thách hệ thống treo/IMU và các vật cản hẹp:
 
 ```bash
-# Khởi chạy mô phỏng có giao diện 3D
+# Khởi chạy mô phỏng có giao diện 3D (kèm Web Dashboard :8000)
 ./scripts/run.sh sim
 
 # Hoặc khởi chạy chế độ headless (cho máy chủ / CI không có màn hình)
 ./scripts/run.sh sim --headless --duration 60
 ```
 
-### 5.5. Khởi chạy Robot Thực Tế (Hardware Bringup)
-Khởi chạy hardware bringup với micro-ROS agent kết nối STM32 và giao diện Web:
+### 5.4. Khởi chạy Web Mission Control
+Khởi động backend FastAPI và giao diện điều khiển trình duyệt:
+
+```bash
+# Chạy Web Dashboard độc lập (cổng 8000)
+./scripts/run.sh web
+
+# Hoặc chạy Next.js chế độ hot-reload cho lập trình viên (cổng 3000)
+./scripts/run.sh web --dev
+```
+Truy cập trình duyệt tại địa chỉ: `http://localhost:8000`
+
+### 5.5. Khởi chạy Robot Thực Tế (Hardware Bringup trực tiếp)
+Khởi chạy hardware bringup trực tiếp từ terminal (kèm micro-ROS agent kết nối STM32 và Web UI):
 
 ```bash
 # Khởi chạy bringup cơ bản (cổng mặc định /dev/stm32)
@@ -166,17 +163,20 @@ Khởi chạy hardware bringup với micro-ROS agent kết nối STM32 và giao 
 ./scripts/run.sh robot --slam --nav
 ```
 
-### 5.6. Khởi chạy Web Mission Control
-Khởi động backend FastAPI và giao diện điều khiển trình duyệt độc lập:
+### 5.6. [Tùy chọn - Robot Thật] Thiết lập Udev Rules & Systemd Daemon
+*Lưu ý: Bước này chỉ dùng khi triển khai thực tế trên robot thật / máy tính nhúng (Jetson / x86 SBC / Pi), không cần dùng khi chạy mô phỏng hoặc phát triển trên PC.*
 
 ```bash
-# Chạy Web Dashboard (cổng 8000)
-./scripts/run.sh web
+# 1. Cài đặt udev rules nhận diện cổng USB cố định (/dev/stm32 và /dev/lidar)
+sudo ./scripts/install.sh udev
 
-# Hoặc chạy Next.js chế độ hot-reload cho lập trình viên (cổng 3000)
-./scripts/run.sh web --dev
+# 2. Cài đặt dịch vụ systemd tự chạy nền khi bật nguồn robot (amr-bringup.service)
+sudo ./scripts/install.sh service
+
+# Hoặc cài đặt tất cả và kiểm tra trạng thái
+sudo ./scripts/install.sh all
+./scripts/install.sh status
 ```
-Truy cập trình duyệt tại địa chỉ: `http://localhost:8000`
 
 ---
 
@@ -238,7 +238,7 @@ bash -c "source /opt/ros/jazzy/setup.bash && PYTHONPATH=src/omni_bringup:src/omn
 # 2. Chạy Kiểm thử Web Backend API & Grid Planner
 web/backend/.venv/bin/pytest web/backend/tests/test_grid_planner.py web/backend/tests/test_api.py web/backend/tests/test_ros2_bridge_concurrency.py -q
 ```
-*Kết quả xác minh:* **83/83 tests PASS (100%)** *(48 ROS 2 tests + 35 Web backend tests)*.
+*Kết quả xác minh:* **84/84 tests PASS (100%)** *(48 ROS 2 tests + 36 Web backend tests)*.
 
 ---
 

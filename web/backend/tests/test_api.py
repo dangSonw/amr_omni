@@ -418,9 +418,9 @@ def test_update_config_pid_and_kalman():
     assert cfg["kalman_r"] == [0.03, 0.03, 0.03, 0.03]
 
 
-
-
-
-
-
-
+def test_telemetry_websocket():
+    with client.websocket_connect("/ws/telemetry") as ws:
+        ws.send_json({"type": "ping", "ts": 12345})
+        data = ws.receive_json()
+        assert data["type"] == "pong"
+        assert data["ts"] == 12345

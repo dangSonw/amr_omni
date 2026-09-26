@@ -249,7 +249,7 @@ class StreamMonitor:
                 "Ước Lượng Tư Thế EKF (EKF → Nav2/Web)",
                 "Jetson (robot_loc)",
                 "Nav2 & Web",
-                "odom",
+                "odometry/filtered",
                 "nav_msgs/Odometry",
                 50.0,
             ),

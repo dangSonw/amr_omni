@@ -17,6 +17,7 @@
     <joint name="roller_joint_${suffix}" type="continuous">
       <parent link="${parent}"/><child link="roller_link_${suffix}"/>
       <origin xyz="${xyz}" rpy="${rpy}"/><axis xyz="0 0 1"/>
+      <dynamics damping="0.001" friction="0.001"/>
     </joint>
     <gazebo reference="roller_link_${suffix}">
       <selfCollide>false</selfCollide>
@@ -29,9 +30,6 @@
       <visual><geometry>
         <mesh filename="package://omni_description/meshes/4w/omni_frame.stl"/>
       </geometry><material name="white"><color rgba="1 1 1 1"/></material></visual>
-      <collision><geometry>
-        <mesh filename="package://omni_description/meshes/4w/omni_frame.stl"/>
-      </geometry></collision>
       <inertial><mass value="0.5"/>
         <inertia ixx="0.005" ixy="0" ixz="0" iyy="0.005" iyz="0" izz="0.005"/>
       </inertial>

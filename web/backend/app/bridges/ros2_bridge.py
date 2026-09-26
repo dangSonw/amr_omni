@@ -49,7 +49,7 @@ try:
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
     from sensor_msgs.msg import Image, Imu, LaserScan
-    from std_msgs.msg import Bool, Float32MultiArray, Int32MultiArray, String
+    from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32MultiArray, String
     HAS_RCLPY = True
 except ImportError as e:
     logger.debug(f"rclpy không thể import: {e}")
@@ -62,6 +62,7 @@ except ImportError as e:
     OccupancyGrid = None
     Path = None
     Image = None
+    Float32 = None
     Float32MultiArray = None
     Int32MultiArray = None
     String = None
@@ -224,7 +225,10 @@ class Ros2Bridge(BaseRobotBridge):
         # Subscribers - Giám sát an toàn Jetson Watchdog & stm32_bridge
         self.node.create_subscription(Bool, "safety_stop", self._on_safety_stop, 10)
         self.node.create_subscription(Twist, "safe_cmd_vel", self._on_safe_cmd_vel, 10)
+        self.node.create_subscription(Twist, "watched_cmd_vel", self._on_watched_cmd_vel, 10)
         self.node.create_subscription(Twist, "stm32_cmd_vel", self._on_stm32_cmd_vel, 10)
+        if Float32 is not None:
+            self.node.create_subscription(Float32, "safety_speed_factor", self._on_safety_speed_factor, 10)
 
         # Subscribers - Autonomy & Telemetry nâng cao (Phase 5)
         if OccupancyGrid is not None:
@@ -508,8 +512,9 @@ class Ros2Bridge(BaseRobotBridge):
                         with self._data_lock:
                             self.odom_x = corr_x
                             self.odom_y = corr_y
-                            self.odom_theta = corr_th
-                            self.yaw_deg = float(math.degrees(corr_th))
+                            if not getattr(self, "imu_received", False) and not getattr(self, "_has_filtered_odom", False):
+                                self.odom_theta = corr_th
+                                self.yaw_deg = float(math.degrees(corr_th))
                             self._has_scan_match = True
             except Exception as e:
                 logger.debug(f"Lỗi add_scan worker: {e}")
@@ -534,13 +539,17 @@ class Ros2Bridge(BaseRobotBridge):
             angle += msg.angle_increment
 
         with self._data_lock:
+            roll = abs(getattr(self, "roll_deg", 0.0))
+            pitch = abs(getattr(self, "pitch_deg", 0.0))
             self.lidar_ranges = ranges
             self.lidar_points = points
             cur_x = self.odom_x
             cur_y = self.odom_y
             cur_th = self.odom_theta
 
-        if hasattr(self, "grid_planner") and self.grid_planner and points:
+        # Bỏ qua tích lũy bản đồ khi robot bị nghiêng pitch/roll > 2.0 độ (tránh tia laser quét trúng sàn nhà)
+        is_tilted = (roll > 2.0 or pitch > 2.0)
+        if hasattr(self, "grid_planner") and self.grid_planner and points and not is_tilted:
             try:
                 self._scan_queue.put_nowait((cur_x, cur_y, cur_th, points))
             except queue.Full:
@@ -560,6 +569,12 @@ class Ros2Bridge(BaseRobotBridge):
         pos_x = float(msg.pose.pose.position.x)
         pos_y = float(msg.pose.pose.position.y)
 
+        # Trích xuất yaw từ quaternion bánh xe (dự phòng khi không có IMU)
+        q = msg.pose.pose.orientation
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        wheel_yaw = float(math.atan2(siny_cosp, cosy_cosp))
+
         with self._data_lock:
             self.wheel_vx = vx
             self.wheel_vy = vy
@@ -568,6 +583,9 @@ class Ros2Bridge(BaseRobotBridge):
                 self.odom_vx = self.wheel_vx
                 self.odom_vy = self.wheel_vy
                 self.odom_wz = self.wheel_wz
+                if not getattr(self, "imu_received", False):
+                    self.odom_theta = wheel_yaw
+                    self.yaw_deg = float(math.degrees(wheel_yaw))
                 if not getattr(self, "_has_scan_match", False):
                     self.odom_x = pos_x
                     self.odom_y = pos_y
@@ -669,8 +687,9 @@ class Ros2Bridge(BaseRobotBridge):
             self.pitch_deg = pitch_deg
             self.yaw_deg = yaw_deg
             self.imu_yaw_rad = float(yaw_rad)
-            # FIX C1: Chỉ ghi đè odom_theta khi chưa có filtered odom và chưa có scan match
-            if not getattr(self, "_has_filtered_odom", False) and not getattr(self, "_has_scan_match", False):
+            self.imu_received = True
+            # Luôn cập nhật odom_theta từ IMU khi chưa có EKF (filtered odom) để heading không bị trôi/kẹt khi xoay
+            if not getattr(self, "_has_filtered_odom", False):
                 self.odom_theta = float(yaw_rad)
 
         stream_monitor.record("stm32_imu_data", f"yaw={yaw_deg:.1f}°, gz={gz:.2f} rad/s")
@@ -717,8 +736,14 @@ class Ros2Bridge(BaseRobotBridge):
     def _on_safe_cmd_vel(self, msg: Twist):
         stream_monitor.record("jetson_cmd_vel", f"safe: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
 
+    def _on_watched_cmd_vel(self, msg: Twist):
+        stream_monitor.record("watched_cmd_vel", f"watched: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
+
     def _on_stm32_cmd_vel(self, msg: Twist):
         stream_monitor.record("stm32_cmd_vel", f"stm32: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
+
+    def _on_safety_speed_factor(self, msg: Float32):
+        stream_monitor.record("safety_speed_factor", f"factor={msg.data:.2f}")
 
     def _on_map(self, msg: OccupancyGrid):
         try:

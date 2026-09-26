@@ -64,6 +64,10 @@ Options:
   --web                      Start the FastAPI web control/monitoring backend (default)
   --no-web, --noweb          Do not start the web interface
   --web-port PORT            Port for web interface (default: 8000)
+  --localization             Enable EKF robot_localization (odom/filtered)
+  --slam                     Enable SLAM Toolbox online mapping (/map)
+  --nav                      Enable Nav2 autonomous navigation stack (/plan, /local_plan)
+  --perception               Enable perception pipeline (laser filter & depth)
   --board NAME               Renode board shortcut (default: stm32f4_discovery)
   --renode-script PATH       Renode .resc file; overrides --board
   --firmware PATH            ELF firmware passed to the Renode script
@@ -106,6 +110,10 @@ run_sim() {
   local skip_build_check=false
   local launch_web=true
   local web_port=8000
+  local enable_slam=false
+  local enable_nav=false
+  local enable_localization=false
+  local enable_perception=false
   local ros_launch_args=()
   local gazebo_command=()
   local renode_command=()
@@ -226,7 +234,11 @@ run_sim() {
 
     gazebo_command=(ros2 launch omni_bringup simulation_bringup.launch.py
       "world:=${world_file}" "use_sim_time:=${use_sim_time}"
-      "headless:=${headless}")
+      "headless:=${headless}"
+      "localization:=${enable_localization}"
+      "slam:=${enable_slam}"
+      "nav:=${enable_nav}"
+      "perception:=${enable_perception}")
     if [[ "$launch_web" == true ]]; then
       local py_bin
       py_bin="$(resolve_python_executable "$ROOT_DIR")"
@@ -371,6 +383,24 @@ run_sim() {
         [[ $# -ge 2 ]] || die '--web-port requires a port number'
         web_port="$2"
         shift 2
+        ;;
+      --slam)
+        enable_slam=true
+        enable_localization=true
+        shift
+        ;;
+      --nav)
+        enable_nav=true
+        enable_localization=true
+        shift
+        ;;
+      --localization)
+        enable_localization=true
+        shift
+        ;;
+      --perception)
+        enable_perception=true
+        shift
         ;;
       --ros-arg)
         [[ $# -ge 2 ]] || die '--ros-arg requires NAME:=VALUE'

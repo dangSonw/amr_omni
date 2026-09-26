@@ -160,7 +160,7 @@
     <!-- Challenge Ramp (14 degrees / 0.244 rad) for torque/traction test -->
     <model name="ramp_steep_14deg">
       <static>true</static>
-      <pose>3.2 -0.2 0.18 0 0.2443 1.5708</pose>
+      <pose>3.6 -0.2 0.18 0 0.2443 1.5708</pose>
       <link name="link">
         <collision name="collision">
           <geometry><box><size>1.6 1.0 0.03</size></box></geometry>
@@ -179,7 +179,7 @@
     <!-- Low profile rumble strips to test suspension & IMU pitch/roll jolts -->
     <model name="rough_terrain_strip">
       <static>true</static>
-      <pose>0.6 0.0 0.005 0 0 0</pose>
+      <pose>2.0 0.0 0.005 0 0 0</pose>
       <!-- Base bed for the rough test strip -->
       <link name="strip_bed">
         <collision name="bed_col"><geometry><box><size>1.6 1.4 0.01</size></box></geometry>

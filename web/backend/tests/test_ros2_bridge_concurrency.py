@@ -152,3 +152,31 @@ def test_c3_scan_worker_non_blocking_execution():
     bridge.running = False
     bridge._scan_queue.put(None)
     worker_thread.join(timeout=0.5)
+
+
+def test_imu_heading_tracking_not_blocked_by_scan_match():
+    """Verify that IMU yaw updates odom_theta continuously even when _has_scan_match is True."""
+    bridge = Ros2Bridge()
+    bridge._has_scan_match = True
+
+    # IMU message at yaw = -45 degrees (-0.785 rad)
+    target_yaw = -math.pi / 4
+    imu_msg = DummyImuMsg(yaw=target_yaw)
+    bridge._on_imu(imu_msg)
+
+    assert math.isclose(bridge.odom_theta, target_yaw, abs_tol=1e-3)
+    assert math.isclose(bridge.yaw_deg, -45.0, abs_tol=0.2)
+
+
+def test_tilted_scan_ignored_by_grid_planner_queue():
+    """Verify that tilted lidar scans (e.g. pitch > 2.0 deg) are not queued for mapping."""
+    bridge = Ros2Bridge()
+    # Emulate robot tilted pitching forward by 3.5 deg
+    bridge.pitch_deg = 3.5
+
+    scan_msg = DummyScanMsg(num_points=50, dist=2.0)
+    bridge._on_scan(scan_msg)
+
+    # Queue must remain empty because scan is tilted and would hit the floor
+    assert bridge._scan_queue.empty()
+

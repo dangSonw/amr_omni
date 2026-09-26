@@ -35,8 +35,6 @@ class GridMapPlanner:
         self.cell_hits: Dict[Tuple[int, int], int] = {}
         # Vùng chạm thân xe (Inscribed Footprint Zone - Cost 253, robot_center cannot enter)
         self.inscribed_cells: Set[Tuple[int, int]] = set()
-        # Đồng bộ inflated_cells với inscribed_cells cho tương thích ngược
-        self.inflated_cells: Set[Tuple[int, int]] = self.inscribed_cells
         # Bản đồ chi phí giãn nở mềm (Costmap Gradient: 1 - 253)
         self.cell_costs: Dict[Tuple[int, int], int] = {}
 
@@ -111,7 +109,8 @@ class GridMapPlanner:
             return rx, ry, rth
 
         sub_step = max(1, len(valid_points) // 32)
-        sub_pts = valid_points[::sub_step]
+        sub_pts = valid_points[::sub_step][:32]
+        max_possible_score = len(sub_pts) * 4
 
         best_score = -1
         best_dx, best_dy, best_dth = 0.0, 0.0, 0.0
@@ -119,10 +118,15 @@ class GridMapPlanner:
         dth_candidates = [-0.04, -0.02, 0.0, 0.02, 0.04]
         dxy_candidates = [-0.12, -0.06, 0.0, 0.06, 0.12]
 
+        perfect_match = False
         for dth in dth_candidates:
+            if perfect_match:
+                break
             c_m = math.cos(rth + dth)
             s_m = math.sin(rth + dth)
             for dx in dxy_candidates:
+                if perfect_match:
+                    break
                 cand_x = rx + dx
                 for dy in dxy_candidates:
                     cand_y = ry + dy
@@ -145,6 +149,9 @@ class GridMapPlanner:
                     if score > best_score:
                         best_score = score
                         best_dx, best_dy, best_dth = dx, dy, dth
+                        if best_score >= max_possible_score:
+                            perfect_match = True
+                            break
 
         return rx + best_dx, ry + best_dy, rth + best_dth
 
@@ -270,6 +277,11 @@ class GridMapPlanner:
                     self.inscribed_cells.add(nbr)
                 if cost > self.cell_costs.get(nbr, 0):
                     self.cell_costs[nbr] = cost
+
+    @property
+    def inflated_cells(self) -> Set[Tuple[int, int]]:
+        """Tương thích ngược: trả về vùng inscribed_cells."""
+        return self.inscribed_cells
 
     def clear(self):
         """Xóa toàn bộ bộ nhớ bản đồ."""
@@ -589,7 +601,7 @@ class OmniMpcController:
         min_obs_dist = float("inf")
         left_clearance = 0
         right_clearance = 0
-        near_obstacles: List[Tuple[float, float]] = []
+        raw_obstacles: List[Tuple[float, float, float]] = []
 
         if lidar_points:
             for pt in lidar_points:
@@ -613,7 +625,13 @@ class OmniMpcController:
                 # Chuyển đổi sang hệ thế giới cho đánh giá rollout MPC
                 wx = current_x + cos_th * px - sin_th * py
                 wy = current_y + sin_th * px + cos_th * py
-                near_obstacles.append((wx, wy))
+                raw_obstacles.append((d, wx, wy))
+
+        if len(raw_obstacles) > 24:
+            raw_obstacles.sort(key=lambda item: item[0])
+            near_obstacles = [(wx, wy) for _, wx, wy in raw_obstacles[:24]]
+        else:
+            near_obstacles = [(wx, wy) for _, wx, wy in raw_obstacles]
 
         # 2. Vùng đệm cập bến (Terminal Arrival Deadband < 0.18m)
         if dist_to_final < 0.18:
@@ -715,6 +733,9 @@ class OmniMpcController:
         best_trajectory: List[List[float]] = []
 
         # 6. Đánh giá quỹ đạo mô phỏng (MPC Horizon Rollout)
+        r_col_sq = (self.robot_radius + 0.03) ** 2
+        r_rep_sq = (self.robot_radius + 0.30) ** 2
+
         for vx_c in cand_vx:
             # Ngăn cản tuyệt đối vận tốc tiến nếu vật cản ngay trước mũi xe
             if min_front_dist < (self.robot_radius + 0.08) and vx_c > 0.0:
@@ -737,12 +758,15 @@ class OmniMpcController:
 
                         # Kiểm tra va chạm với các vật cản gần
                         for ox, oy in near_obstacles:
-                            obs_dist = math.hypot(sim_x - ox, sim_y - oy)
-                            if obs_dist < (self.robot_radius + 0.03):
+                            dx_o = sim_x - ox
+                            dy_o = sim_y - oy
+                            d_sq = dx_o * dx_o + dy_o * dy_o
+                            if d_sq < r_col_sq:
                                 collision = True
                                 cost += 50000.0
                                 break
-                            elif obs_dist < (self.robot_radius + 0.30):
+                            elif d_sq < r_rep_sq:
+                                obs_dist = math.sqrt(d_sq)
                                 cost += 15.0 / max(0.01, (obs_dist - self.robot_radius) ** 2)
 
                         if collision:

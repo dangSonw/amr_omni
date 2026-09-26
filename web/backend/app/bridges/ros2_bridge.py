@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import os
+import queue
 import threading
 import time
 try:
@@ -96,6 +97,11 @@ class Ros2Bridge(BaseRobotBridge):
         self.running = False
         self.start_time = time.time()
         self._data_lock = threading.Lock()  # Protects shared sensor data from ROS thread vs AsyncIO
+        self._planner_lock = threading.Lock()  # Protects grid_planner operations from concurrent threads
+        self._has_filtered_odom = False
+        self._has_scan_match = False
+        self._scan_queue: queue.Queue = queue.Queue(maxsize=1)
+        self._scan_thread: Optional[threading.Thread] = None
 
         # Trạng thái kết nối và an toàn
         self.status_msg = "OK"
@@ -248,6 +254,10 @@ class Ros2Bridge(BaseRobotBridge):
         self.spin_thread = threading.Thread(target=_run_spin, daemon=True)
         self.spin_thread.start()
 
+        # Khởi động luồng xử lý quét bản đồ nền (Scan Worker Thread) để không làm block ROS executor
+        self._scan_thread = threading.Thread(target=self._scan_worker, daemon=True)
+        self._scan_thread.start()
+
         # Khởi động bộ điều khiển tự hành kín (Closed-loop Omni Goal Tracker)
         self.autonomy_thread = threading.Thread(target=self._autonomy_loop, daemon=True)
         self.autonomy_thread.start()
@@ -256,6 +266,11 @@ class Ros2Bridge(BaseRobotBridge):
     async def stop(self) -> None:
         self.running = False
         self.active_goal = None
+        if self._scan_queue:
+            try:
+                self._scan_queue.put_nowait(None)
+            except Exception:
+                pass
         if self.executor:
             self.executor.shutdown()
         if self.node:
@@ -264,6 +279,8 @@ class Ros2Bridge(BaseRobotBridge):
             self.spin_thread.join(timeout=1.0)
         if self.autonomy_thread and self.autonomy_thread.is_alive():
             self.autonomy_thread.join(timeout=0.5)
+        if self._scan_thread and self._scan_thread.is_alive():
+            self._scan_thread.join(timeout=0.5)
         if rclpy.ok():
             rclpy.shutdown()
         logger.info("ROS 2 Bridge node đã dừng.")
@@ -307,13 +324,16 @@ class Ros2Bridge(BaseRobotBridge):
                 self.stm32_cmd_vel_pub.publish(zero_twist)
 
     def reset_odometry(self) -> None:
-        self.odom_x = 0.0
-        self.odom_y = 0.0
-        self.odom_theta = 0.0
-        self.imu_yaw_rad = 0.0
-        self._has_scan_match = False
-        if hasattr(self, "grid_planner") and self.grid_planner:
-            self.grid_planner.clear()
+        with self._data_lock:
+            self.odom_x = 0.0
+            self.odom_y = 0.0
+            self.odom_theta = 0.0
+            self.imu_yaw_rad = 0.0
+            self._has_scan_match = False
+            self._has_filtered_odom = False
+        with self._planner_lock:
+            if hasattr(self, "grid_planner") and self.grid_planner:
+                self.grid_planner.clear()
         logger.info("Reset odometry coordinates to (0, 0, 0)")
 
     def get_status(self) -> RobotStatus:
@@ -340,47 +360,72 @@ class Ros2Bridge(BaseRobotBridge):
         )
 
     def get_wheel_telemetry(self) -> WheelTelemetry:
+        with self._data_lock:
+            target = [round(s, 2) for s in self.target_wheel_speeds]
+            measured = [round(s, 2) for s in self.measured_wheel_speeds]
+            ticks = list(self.encoder_ticks)
+            pwms = [round(s, 2) for s in self.motor_commands]
         return WheelTelemetry(
-            target_rad_s=[round(s, 2) for s in self.target_wheel_speeds],
-            measured_rad_s=[round(s, 2) for s in self.measured_wheel_speeds],
-            encoder_ticks=list(self.encoder_ticks),
-            pwm_commands=[round(s, 2) for s in self.motor_commands],
+            target_rad_s=target,
+            measured_rad_s=measured,
+            encoder_ticks=ticks,
+            pwm_commands=pwms,
         )
 
     def get_imu_telemetry(self) -> ImuTelemetry:
+        with self._data_lock:
+            roll = self.roll_deg
+            pitch = self.pitch_deg
+            yaw = self.yaw_deg
+            ax = self.accel_x
+            ay = self.accel_y
+            az = self.accel_z
+            gx = self.gyro_x
+            gy = self.gyro_y
+            gz = self.gyro_z
+            qx = getattr(self, "qx", 0.0)
+            qy = getattr(self, "qy", 0.0)
+            qz = getattr(self, "qz", 0.0)
+            qw = getattr(self, "qw", 1.0)
         return ImuTelemetry(
-            roll_deg=round(self.roll_deg, 2),
-            pitch_deg=round(self.pitch_deg, 2),
-            yaw_deg=round(self.yaw_deg % 360.0, 2),
-            accel_x=round(self.accel_x, 3),
-            accel_y=round(self.accel_y, 3),
-            accel_z=round(self.accel_z, 3),
-            gyro_x=round(self.gyro_x, 3),
-            gyro_y=round(self.gyro_y, 3),
-            gyro_z=round(self.gyro_z, 3),
-            qx=round(getattr(self, "qx", 0.0), 4),
-            qy=round(getattr(self, "qy", 0.0), 4),
-            qz=round(getattr(self, "qz", 0.0), 4),
-            qw=round(getattr(self, "qw", 1.0), 4),
+            roll_deg=round(roll, 2),
+            pitch_deg=round(pitch, 2),
+            yaw_deg=round(yaw % 360.0, 2),
+            accel_x=round(ax, 3),
+            accel_y=round(ay, 3),
+            accel_z=round(az, 3),
+            gyro_x=round(gx, 3),
+            gyro_y=round(gy, 3),
+            gyro_z=round(gz, 3),
+            qx=round(qx, 4),
+            qy=round(qy, 4),
+            qz=round(qz, 4),
+            qw=round(qw, 4),
         )
 
     def get_debug_telemetry(self) -> Optional[DebugTelemetry]:
         if getattr(self, "debug_telemetry", None) is not None:
             return self.debug_telemetry
+        with self._data_lock:
+            meas_speeds = [round(s, 2) for s in self.measured_wheel_speeds]
+            target_speeds = [round(s, 2) for s in self.target_wheel_speeds]
+            motor_cmds = [round(s, 2) for s in self.motor_commands]
+            qx = round(getattr(self, "qx", 0.0), 4)
+            qy = round(getattr(self, "qy", 0.0), 4)
+            qz = round(getattr(self, "qz", 0.0), 4)
+            qw = round(getattr(self, "qw", 1.0), 4)
+            vx = round(self.odom_vx, 3)
+            vy = round(self.odom_vy, 3)
+            wz = round(self.odom_wz, 3)
         return DebugTelemetry(
-            raw_wheel_speed_rad_s=[round(s, 2) for s in self.measured_wheel_speeds],
-            filtered_wheel_speed_rad_s=[round(s, 2) for s in self.measured_wheel_speeds],
-            target_wheel_speed_rad_s=[round(s, 2) for s in self.target_wheel_speeds],
-            motor_output=[round(s, 2) for s in self.motor_commands],
-            imu_quaternion_xyzw=[
-                round(getattr(self, "qx", 0.0), 4),
-                round(getattr(self, "qy", 0.0), 4),
-                round(getattr(self, "qz", 0.0), 4),
-                round(getattr(self, "qw", 1.0), 4),
-            ],
-            body_vx_mps=round(self.odom_vx, 3),
-            body_vy_mps=round(self.odom_vy, 3),
-            body_wz_rad_s=round(self.odom_wz, 3),
+            raw_wheel_speed_rad_s=meas_speeds,
+            filtered_wheel_speed_rad_s=meas_speeds,
+            target_wheel_speed_rad_s=target_speeds,
+            motor_output=motor_cmds,
+            imu_quaternion_xyzw=[qx, qy, qz, qw],
+            body_vx_mps=vx,
+            body_vy_mps=vy,
+            body_wz_rad_s=wz,
             cmd_vx_mps=0.0,
             cmd_vy_mps=0.0,
             cmd_wz_rad_s=0.0,
@@ -401,13 +446,20 @@ class Ros2Bridge(BaseRobotBridge):
         )
 
     def get_odometry(self) -> OdometryTelemetry:
+        with self._data_lock:
+            ox = self.odom_x
+            oy = self.odom_y
+            oth = self.odom_theta
+            ovx = self.odom_vx
+            ovy = self.odom_vy
+            owz = self.odom_wz
         return OdometryTelemetry(
-            x=round(self.odom_x, 3),
-            y=round(self.odom_y, 3),
-            theta_rad=round(self.odom_theta, 3),
-            vx=round(self.odom_vx, 3),
-            vy=round(self.odom_vy, 3),
-            wz=round(self.odom_wz, 3),
+            x=round(ox, 3),
+            y=round(oy, 3),
+            theta_rad=round(oth, 3),
+            vx=round(ovx, 3),
+            vy=round(ovy, 3),
+            wz=round(owz, 3),
         )
 
     def get_config(self) -> RobotConfig:
@@ -435,6 +487,33 @@ class Ros2Bridge(BaseRobotBridge):
     get_imu = get_imu_telemetry
     get_lidar = get_lidar_telemetry
 
+    def _scan_worker(self):
+        """Xử lý tích lũy bản đồ GridMapPlanner.add_scan trong background thread riêng để không block ROS executor."""
+        while self.running:
+            try:
+                item = self._scan_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if item is None or not self.running:
+                break
+
+            x, y, theta, pts = item
+            try:
+                if hasattr(self, "grid_planner") and self.grid_planner and pts:
+                    with self._planner_lock:
+                        self.grid_planner.add_scan(x, y, theta, pts)
+                        matched = getattr(self.grid_planner, "last_matched_pose", None)
+                    if matched:
+                        corr_x, corr_y, corr_th = matched
+                        with self._data_lock:
+                            self.odom_x = corr_x
+                            self.odom_y = corr_y
+                            self.odom_theta = corr_th
+                            self.yaw_deg = float(math.degrees(corr_th))
+                            self._has_scan_match = True
+            except Exception as e:
+                logger.debug(f"Lỗi add_scan worker: {e}")
+
     # ROS 2 Callbacks
     def _on_scan(self, msg: LaserScan):
         ranges: List[float] = []
@@ -457,15 +536,16 @@ class Ros2Bridge(BaseRobotBridge):
         with self._data_lock:
             self.lidar_ranges = ranges
             self.lidar_points = points
+            cur_x = self.odom_x
+            cur_y = self.odom_y
+            cur_th = self.odom_theta
+
         if hasattr(self, "grid_planner") and self.grid_planner and points:
-            self.grid_planner.add_scan(self.odom_x, self.odom_y, self.odom_theta, points)
-            if getattr(self.grid_planner, "last_matched_pose", None):
-                corr_x, corr_y, corr_th = self.grid_planner.last_matched_pose
-                self.odom_x = corr_x
-                self.odom_y = corr_y
-                self.odom_theta = corr_th
-                self.yaw_deg = float(math.degrees(corr_th))
-                self._has_scan_match = True
+            try:
+                self._scan_queue.put_nowait((cur_x, cur_y, cur_th, points))
+            except queue.Full:
+                pass
+
         dist_str = f"min={min_dist:.2f}m" if min_dist != float("inf") else "min=N/A"
         stream_monitor.record("sensor_lidar", f"rays={len(ranges)}, valid={len(points)}, {dist_str}")
 
@@ -474,89 +554,126 @@ class Ros2Bridge(BaseRobotBridge):
         last_wheel_time = getattr(self, "_last_wheel_odom_time", None)
         self._last_wheel_odom_time = now
 
-        self.wheel_vx = float(msg.twist.twist.linear.x)
-        self.wheel_vy = float(msg.twist.twist.linear.y)
-        self.wheel_wz = float(msg.twist.twist.angular.z)
-        if not getattr(self, "_has_filtered_odom", False):
-            self.odom_vx = self.wheel_vx
-            self.odom_vy = self.wheel_vy
-            self.odom_wz = self.wheel_wz
-            if not getattr(self, "_has_scan_match", False):
-                self.odom_x = float(msg.pose.pose.position.x)
-                self.odom_y = float(msg.pose.pose.position.y)
-            elif last_wheel_time is not None:
-                dt = now - last_wheel_time
-                if 0.0 < dt < 0.2:
-                    cos_th = math.cos(self.odom_theta)
-                    sin_th = math.sin(self.odom_theta)
-                    self.odom_x += (cos_th * self.wheel_vx - sin_th * self.wheel_vy) * dt
-                    self.odom_y += (sin_th * self.wheel_vx + cos_th * self.wheel_vy) * dt
-        stream_monitor.record("stm32_wheel_odom", f"vx={self.wheel_vx:.2f}, vy={self.wheel_vy:.2f}, wz={self.wheel_wz:.2f}")
+        vx = float(msg.twist.twist.linear.x)
+        vy = float(msg.twist.twist.linear.y)
+        wz = float(msg.twist.twist.angular.z)
+        pos_x = float(msg.pose.pose.position.x)
+        pos_y = float(msg.pose.pose.position.y)
+
+        with self._data_lock:
+            self.wheel_vx = vx
+            self.wheel_vy = vy
+            self.wheel_wz = wz
+            if not getattr(self, "_has_filtered_odom", False):
+                self.odom_vx = self.wheel_vx
+                self.odom_vy = self.wheel_vy
+                self.odom_wz = self.wheel_wz
+                if not getattr(self, "_has_scan_match", False):
+                    self.odom_x = pos_x
+                    self.odom_y = pos_y
+                elif last_wheel_time is not None:
+                    dt = now - last_wheel_time
+                    if 0.0 < dt < 0.2:
+                        cos_th = math.cos(self.odom_theta)
+                        sin_th = math.sin(self.odom_theta)
+                        self.odom_x += (cos_th * self.wheel_vx - sin_th * self.wheel_vy) * dt
+                        self.odom_y += (sin_th * self.wheel_vx + cos_th * self.wheel_vy) * dt
+
+        stream_monitor.record("stm32_wheel_odom", f"vx={vx:.2f}, vy={vy:.2f}, wz={wz:.2f}")
 
     def _on_odom(self, msg: Odometry):
-        self._has_filtered_odom = True
-        self.odom_x = float(msg.pose.pose.position.x)
-        self.odom_y = float(msg.pose.pose.position.y)
         q = msg.pose.pose.orientation
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.odom_theta = float(math.atan2(siny_cosp, cosy_cosp))
-        self.yaw_deg = math.degrees(self.odom_theta)
-        self.odom_vx = float(msg.twist.twist.linear.x)
-        self.odom_vy = float(msg.twist.twist.linear.y)
-        self.odom_wz = float(msg.twist.twist.angular.z)
-        stream_monitor.record("localization_odom", f"x={self.odom_x:.2f}m, y={self.odom_y:.2f}m, th={self.yaw_deg:.1f}°")
+        th = float(math.atan2(siny_cosp, cosy_cosp))
+        deg = math.degrees(th)
+        px = float(msg.pose.pose.position.x)
+        py = float(msg.pose.pose.position.y)
+        vx = float(msg.twist.twist.linear.x)
+        vy = float(msg.twist.twist.linear.y)
+        wz = float(msg.twist.twist.angular.z)
+
+        with self._data_lock:
+            self._has_filtered_odom = True
+            self.odom_x = px
+            self.odom_y = py
+            self.odom_theta = th
+            self.yaw_deg = deg
+            self.odom_vx = vx
+            self.odom_vy = vy
+            self.odom_wz = wz
+
+        stream_monitor.record("localization_odom", f"x={px:.2f}m, y={py:.2f}m, th={deg:.1f}°")
 
     def _on_wheel_state(self, msg: Float32MultiArray):
         data = list(msg.data)
         # Format chuẩn từ STM32: 12 giá trị (4 measured, 4 target, 4 motor command)
-        if len(data) >= 4:
-            self.measured_wheel_speeds = [float(v) for v in data[0:4]]
-        if len(data) >= 8:
-            self.target_wheel_speeds = [float(v) for v in data[4:8]]
-        if len(data) >= 12:
-            self.motor_commands = [float(v) for v in data[8:12]]
-
-        meas_summary = [round(v, 2) for v in self.measured_wheel_speeds]
+        with self._data_lock:
+            if len(data) >= 4:
+                self.measured_wheel_speeds = [float(v) for v in data[0:4]]
+            if len(data) >= 8:
+                self.target_wheel_speeds = [float(v) for v in data[4:8]]
+            if len(data) >= 12:
+                self.motor_commands = [float(v) for v in data[8:12]]
+            meas_summary = [round(v, 2) for v in self.measured_wheel_speeds]
         stream_monitor.record("stm32_wheel_state", f"speeds={meas_summary} rad/s")
 
     def _on_encoder_counts(self, msg: Int32MultiArray):
         if len(msg.data) >= 4:
-            self.encoder_ticks = [int(v) for v in msg.data[:4]]
-            stream_monitor.record("stm32_encoder_counts", f"ticks={self.encoder_ticks}")
+            ticks = [int(v) for v in msg.data[:4]]
+            with self._data_lock:
+                self.encoder_ticks = ticks
+            stream_monitor.record("stm32_encoder_counts", f"ticks={ticks}")
 
     def _on_imu(self, msg: Imu):
-        self.accel_x = float(msg.linear_acceleration.x)
-        self.accel_y = float(msg.linear_acceleration.y)
-        self.accel_z = float(msg.linear_acceleration.z)
-        self.gyro_x = float(msg.angular_velocity.x)
-        self.gyro_y = float(msg.angular_velocity.y)
-        self.gyro_z = float(msg.angular_velocity.z)
+        ax = float(msg.linear_acceleration.x)
+        ay = float(msg.linear_acceleration.y)
+        az = float(msg.linear_acceleration.z)
+        gx = float(msg.angular_velocity.x)
+        gy = float(msg.angular_velocity.y)
+        gz = float(msg.angular_velocity.z)
 
         q = msg.orientation
-        self.qx = float(q.x)
-        self.qy = float(q.y)
-        self.qz = float(q.z)
-        self.qw = float(q.w)
+        qx = float(q.x)
+        qy = float(q.y)
+        qz = float(q.z)
+        qw = float(q.w)
         # Tính toán Roll, Pitch, Yaw từ Quaternion
-        sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z)
-        cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
-        self.roll_deg = float(math.degrees(math.atan2(sinr_cosp, cosr_cosp)))
+        sinr_cosp = 2.0 * (qw * qx + qy * qz)
+        cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
+        roll_deg = float(math.degrees(math.atan2(sinr_cosp, cosr_cosp)))
 
-        sinp = 2.0 * (q.w * q.y - q.z * q.x)
+        sinp = 2.0 * (qw * qy - qz * qx)
         if abs(sinp) >= 1.0:
-            self.pitch_deg = float(math.degrees(math.copysign(math.pi / 2, sinp)))
+            pitch_deg = float(math.degrees(math.copysign(math.pi / 2, sinp)))
         else:
-            self.pitch_deg = float(math.degrees(math.asin(sinp)))
+            pitch_deg = float(math.degrees(math.asin(sinp)))
 
-        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        siny_cosp = 2.0 * (qw * qz + qx * qy)
+        cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
         yaw_rad = math.atan2(siny_cosp, cosy_cosp)
-        self.yaw_deg = float(math.degrees(yaw_rad))
-        self.imu_yaw_rad = float(yaw_rad)
-        self.odom_theta = float(yaw_rad)
+        yaw_deg = float(math.degrees(yaw_rad))
 
-        stream_monitor.record("stm32_imu_data", f"yaw={self.yaw_deg:.1f}°, gz={self.gyro_z:.2f} rad/s")
+        with self._data_lock:
+            self.accel_x = ax
+            self.accel_y = ay
+            self.accel_z = az
+            self.gyro_x = gx
+            self.gyro_y = gy
+            self.gyro_z = gz
+            self.qx = qx
+            self.qy = qy
+            self.qz = qz
+            self.qw = qw
+            self.roll_deg = roll_deg
+            self.pitch_deg = pitch_deg
+            self.yaw_deg = yaw_deg
+            self.imu_yaw_rad = float(yaw_rad)
+            # FIX C1: Chỉ ghi đè odom_theta khi chưa có filtered odom và chưa có scan match
+            if not getattr(self, "_has_filtered_odom", False) and not getattr(self, "_has_scan_match", False):
+                self.odom_theta = float(yaw_rad)
+
+        stream_monitor.record("stm32_imu_data", f"yaw={yaw_deg:.1f}°, gz={gz:.2f} rad/s")
 
     def _on_debug_data(self, msg: String):
         try:
@@ -618,12 +735,16 @@ class Ros2Bridge(BaseRobotBridge):
             logger.debug(f"Lỗi parse map: {e}")
 
     def _on_global_plan(self, msg: Path):
-        self.global_path = [[float(p.pose.position.x), float(p.pose.position.y)] for p in msg.poses]
-        stream_monitor.record("global_plan", f"{len(self.global_path)} waypoints")
+        path = [[float(p.pose.position.x), float(p.pose.position.y)] for p in msg.poses]
+        with self._data_lock:
+            self.global_path = path
+        stream_monitor.record("global_plan", f"{len(path)} waypoints")
 
     def _on_local_plan(self, msg: Path):
-        self.local_path = [[float(p.pose.position.x), float(p.pose.position.y)] for p in msg.poses]
-        stream_monitor.record("local_plan", f"{len(self.local_path)} waypoints")
+        path = [[float(p.pose.position.x), float(p.pose.position.y)] for p in msg.poses]
+        with self._data_lock:
+            self.local_path = path
+        stream_monitor.record("local_plan", f"{len(path)} waypoints")
 
     def _on_camera(self, msg: Image):
         if not HAS_CV2:
@@ -690,21 +811,27 @@ class Ros2Bridge(BaseRobotBridge):
         dist_to_final: Optional[float] = None,
     ):
         """Tính toán vector vận tốc né vật cản LiDAR và ưu tiên xoay đầu xe theo hướng di chuyển."""
+        with self._data_lock:
+            cur_ox = self.odom_x
+            cur_oy = self.odom_y
+            cur_oth = self.odom_theta
+            cur_pts = list(self.lidar_points)
+
         if gx is None:
             gx = tx
         if gy is None:
             gy = ty
         if dist_to_final is None:
-            dist_to_final = math.hypot(gx - self.odom_x, gy - self.odom_y)
+            dist_to_final = math.hypot(gx - cur_ox, gy - cur_oy)
 
         # 1. VÙNG ĐỆM TIẾP CẬN ĐÍCH (Final Approach Deadband):
         # Khi cự ly tới đích cuối cùng < 0.25m:
         # TRIỆT TIÊU TOÀN BỘ VẬN TỐC GÓC wz = 0.0 để xe tuyệt đối không bị rung lắc / xoay vòng đảo chiều!
         if dist_to_final < 0.25:
-            dx = gx - self.odom_x
-            dy = gy - self.odom_y
-            cos_th = math.cos(self.odom_theta)
-            sin_th = math.sin(self.odom_theta)
+            dx = gx - cur_ox
+            dy = gy - cur_oy
+            cos_th = math.cos(cur_oth)
+            sin_th = math.sin(cur_oth)
             # Vector mục tiêu trong hệ robot frame
             rx = cos_th * dx + sin_th * dy
             ry = -sin_th * dx + cos_th * dy
@@ -718,20 +845,20 @@ class Ros2Bridge(BaseRobotBridge):
                 vr_y = 0.0
             wz = 0.0
             local_path = [
-                [round(self.odom_x, 3), round(self.odom_y, 3)],
+                [round(cur_ox, 3), round(cur_oy, 3)],
                 [round(gx, 3), round(gy, 3)],
             ]
             return vr_x, vr_y, wz, dist_to_final, local_path
 
         # 2. DI CHUYỂN BÌNH THƯỜNG THEO WAYPOINT TRUNG GIAN (tx, ty)
-        dx = tx - self.odom_x
-        dy = ty - self.odom_y
+        dx = tx - cur_ox
+        dy = ty - cur_oy
         dist = math.hypot(dx, dy)
         if dist < 1e-4:
             return 0.0, 0.0, 0.0, dist_to_final, []
 
-        cos_th = math.cos(self.odom_theta)
-        sin_th = math.sin(self.odom_theta)
+        cos_th = math.cos(cur_oth)
+        sin_th = math.sin(cur_oth)
         # Vector mục tiêu trong hệ robot frame
         u_att_x = dx / dist
         u_att_y = dy / dist
@@ -746,7 +873,7 @@ class Ros2Bridge(BaseRobotBridge):
         left_clearance = 0
         right_clearance = 0
 
-        for pt in self.lidar_points:
+        for pt in cur_pts:
             px, py = pt[0], pt[1]
             p_dist = math.hypot(px, py)
             if 0.05 < p_dist < d_safe:
@@ -796,16 +923,16 @@ class Ros2Bridge(BaseRobotBridge):
         vr_y = total_speed * math.sin(phi_move) * 0.3  # Giảm trôi ngang để xe chạy về phía trước
 
         # Dừng khẩn cấp nếu vật cản quá sát trước mặt (< 22cm)
-        for pt in self.lidar_points:
+        for pt in cur_pts:
             if 0 < pt[0] < 0.22 and abs(pt[1]) < 0.18:
                 vr_x = min(0.0, vr_x)
 
         # Tính toán các điểm lộ trình né vật cản (Local Path) để vẽ lên Web Canvas
-        move_theta_world = self.odom_theta + phi_move
-        step1_x = self.odom_x + min(0.4, dist * 0.5) * math.cos(move_theta_world)
-        step1_y = self.odom_y + min(0.4, dist * 0.5) * math.sin(move_theta_world)
+        move_theta_world = cur_oth + phi_move
+        step1_x = cur_ox + min(0.4, dist * 0.5) * math.cos(move_theta_world)
+        step1_y = cur_oy + min(0.4, dist * 0.5) * math.sin(move_theta_world)
         local_path = [
-            [round(self.odom_x, 3), round(self.odom_y, 3)],
+            [round(cur_ox, 3), round(cur_oy, 3)],
             [round(step1_x, 3), round(step1_y, 3)],
             [round(tx, 3), round(ty, 3)],
         ]
@@ -817,96 +944,126 @@ class Ros2Bridge(BaseRobotBridge):
         loop_counter = 0
         while self.running:
             time.sleep(0.066)
-            if not self.active_goal or self.estop_active:
+            with self._data_lock:
+                goal = dict(self.active_goal) if self.active_goal else None
+                estop = self.estop_active
+                ox = self.odom_x
+                oy = self.odom_y
+                oth = self.odom_theta
+                lidar_pts = list(self.lidar_points)
+                g_path = list(self.global_path)
+
+            if not goal or estop:
                 continue
 
             loop_counter += 1
-            gx = self.active_goal["x"]
-            gy = self.active_goal["y"]
-            dist_to_final = math.hypot(gx - self.odom_x, gy - self.odom_y)
+            gx = goal["x"]
+            gy = goal["y"]
+            dist_to_final = math.hypot(gx - ox, gy - oy)
 
             # 1. Kiểm tra xem đã đến đích trong ngưỡng chính xác 8cm chưa
             if dist_to_final <= 0.08:
                 for _ in range(3):
                     self._publish_twist(0.0, 0.0, 0.0)
                     time.sleep(0.02)
-                self.nav_state = "reached"
-                self.active_goal = None
-                self.local_path = []
+                with self._data_lock:
+                    self.nav_state = "reached"
+                    self.active_goal = None
+                    self.local_path = []
                 self.mpc_controller.reset()
                 logger.info(f"Tự hành MPC: Đã đến điểm đích ({gx:.2f}, {gy:.2f}) thành công và dừng hẳn!")
                 continue
 
             # 2. Liên tục tái lập kế hoạch động (Dynamic Replanning) mỗi ~0.26s (4 chu kỳ) để né vật cản mới xuất hiện
             if loop_counter % 4 == 0 and hasattr(self, "grid_planner") and self.grid_planner:
-                new_path = self.grid_planner.plan_path(self.odom_x, self.odom_y, gx, gy)
+                with self._planner_lock:
+                    new_path = self.grid_planner.plan_path(ox, oy, gx, gy)
                 if new_path and len(new_path) >= 2:
-                    self.global_path = new_path
+                    with self._data_lock:
+                        self.global_path = new_path
+                    g_path = new_path
 
             # 3. Tính toán quỹ đạo tối ưu MPC né vật cản
             vr_x, vr_y, wz, dist, local_path = self.mpc_controller.compute(
-                self.odom_x,
-                self.odom_y,
-                self.odom_theta,
-                self.global_path,
+                ox,
+                oy,
+                oth,
+                g_path,
                 gx,
                 gy,
-                self.lidar_points,
+                lidar_pts,
             )
 
-            self.nav_state = "navigating"
+            with self._data_lock:
+                self.nav_state = "navigating"
+                self.local_path = local_path
             self._publish_twist(vr_x, vr_y, wz)
-            self.local_path = local_path
 
     def get_battery_telemetry(self) -> BatteryTelemetry:
         return self.battery
 
     def get_path_telemetry(self) -> PathTelemetry:
-        obstacles = (
-            self.grid_planner.get_obstacle_points(max_points=800)
-            if hasattr(self, "grid_planner") and self.grid_planner
-            else []
-        )
+        with self._planner_lock:
+            obstacles = (
+                self.grid_planner.get_obstacle_points(max_points=800)
+                if hasattr(self, "grid_planner") and self.grid_planner
+                else []
+            )
+        with self._data_lock:
+            g_path = list(self.global_path)
+            l_path = list(self.local_path)
         return PathTelemetry(
-            global_path=self.global_path,
-            local_path=self.local_path,
+            global_path=g_path,
+            local_path=l_path,
             obstacles=obstacles,
         )
 
     def clear_map_memory(self):
         """Xóa bộ nhớ bản đồ vật cản và làm mới lộ trình."""
-        if hasattr(self, "grid_planner") and self.grid_planner:
-            self.grid_planner.clear()
-        self._has_scan_match = False
-        self.global_path = []
-        self.local_path = []
+        with self._planner_lock:
+            if hasattr(self, "grid_planner") and self.grid_planner:
+                self.grid_planner.clear()
+        with self._data_lock:
+            self._has_scan_match = False
+            self.global_path = []
+            self.local_path = []
         logger.info("Bộ nhớ bản đồ vật cản và lộ trình đã được xóa trắng.")
 
     def get_map(self) -> Optional[dict]:
         return self.map_data
 
     async def send_nav_goal(self, x: float, y: float, theta: float = 0.0, frame_id: str = "map") -> bool:
-        self.active_goal = {"x": float(x), "y": float(y), "theta": float(theta)}
-        self.nav_state = "navigating"
-        self.current_waypoint_index = 0
+        goal = {"x": float(x), "y": float(y), "theta": float(theta)}
+        with self._data_lock:
+            self.active_goal = goal
+            self.nav_state = "navigating"
+            self.current_waypoint_index = 0
+            cur_ox = self.odom_x
+            cur_oy = self.odom_y
 
         # Sinh quỹ đạo toàn cục A* né tường và vật cản đã lưu trong bộ nhớ
+        g_path = []
         if hasattr(self, "grid_planner") and self.grid_planner:
-            self.global_path = self.grid_planner.plan_path(self.odom_x, self.odom_y, x, y)
-        else:
+            with self._planner_lock:
+                g_path = self.grid_planner.plan_path(cur_ox, cur_oy, x, y)
+        if not g_path:
             steps = 15
-            self.global_path = [
+            g_path = [
                 [
-                    round(self.odom_x + (x - self.odom_x) * (i / steps), 3),
-                    round(self.odom_y + (y - self.odom_y) * (i / steps), 3),
+                    round(cur_ox + (x - cur_ox) * (i / steps), 3),
+                    round(cur_oy + (y - cur_oy) * (i / steps), 3),
                 ]
                 for i in range(steps + 1)
             ]
 
-        self.local_path = [
-            [round(self.odom_x, 3), round(self.odom_y, 3)],
+        l_path = [
+            [round(cur_ox, 3), round(cur_oy, 3)],
             [round(x, 3), round(y, 3)],
         ]
+
+        with self._data_lock:
+            self.global_path = g_path
+            self.local_path = l_path
 
         # Phát hành tới Nav2 /goal_pose nếu stack Nav2 đang chạy
         if self.running and self.node and self.goal_pub:
@@ -922,10 +1079,11 @@ class Ros2Bridge(BaseRobotBridge):
         return True
 
     async def cancel_nav_goal(self) -> bool:
-        self.active_goal = None
-        self.nav_state = "cancelled"
-        self.global_path = []
-        self.local_path = []
+        with self._data_lock:
+            self.active_goal = None
+            self.nav_state = "cancelled"
+            self.global_path = []
+            self.local_path = []
         if hasattr(self, "mpc_controller") and self.mpc_controller:
             self.mpc_controller.reset()
         # Gửi chuỗi xung vận tốc 0 đa cổng để phanh khẩn cấp lập tức
@@ -942,12 +1100,17 @@ class Ros2Bridge(BaseRobotBridge):
         return True
 
     def get_nav_status(self) -> dict:
+        with self._data_lock:
+            goal = dict(self.active_goal) if self.active_goal else None
+            state = self.nav_state
+            ox = self.odom_x
+            oy = self.odom_y
         dist = 0.0
-        if self.active_goal:
-            dist = math.hypot(self.active_goal["x"] - self.odom_x, self.active_goal["y"] - self.odom_y)
+        if goal:
+            dist = math.hypot(goal["x"] - ox, goal["y"] - oy)
         return {
-            "state": self.nav_state,
-            "goal": self.active_goal,
+            "state": state,
+            "goal": goal,
             "distance_remaining_m": round(dist, 2),
         }
 
@@ -964,6 +1127,10 @@ class Ros2Bridge(BaseRobotBridge):
     def _render_rgb_fallback_hud(self) -> Optional[bytes]:
         if not HAS_CV2:
             return None
+        with self._data_lock:
+            ox = self.odom_x
+            oy = self.odom_y
+            yaw = self.yaw_deg
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         img[:] = (20, 24, 33)
         # Tâm ngắm
@@ -973,7 +1140,7 @@ class Ros2Bridge(BaseRobotBridge):
         # Thông số HUD
         cv2.putText(img, "AMR OMNI CAM 01 [RGB LIVE]", (20, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 180), 2)
-        cv2.putText(img, f"POS: ({self.odom_x:.2f}m, {self.odom_y:.2f}m) YAW: {self.yaw_deg:.1f} deg",
+        cv2.putText(img, f"POS: ({ox:.2f}m, {oy:.2f}m) YAW: {yaw:.1f} deg",
                     (20, 440), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
         cv2.putText(img, f"BATT: {self.battery.voltage_v:.1f}V ({self.battery.soc_percent:.0f}%)",
                     (420, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 120), 1)

@@ -56,28 +56,33 @@ amr_omni/
 ├── firmware/                         # Mã nguồn STM32 PlatformIO (FreeRTOS + micro-ROS)
 │   ├── stm32_f407vg_arduino_sim/    # Source hoàn chỉnh cho STM32F407VG Discovery
 │   └── stm32_f407vg_stm3cube_sim/   # Scaffold cho STM32CubeIDE
-├── scripts/                          # Bộ 8 kịch bản tự động hóa vận hành hệ thống
+├── scripts/                          # Bộ 5 kịch bản tự động hóa vận hành hệ thống
 │   ├── setup.sh                     # Kiểm tra môi trường host, cài đặt công cụ
 │   ├── build.sh                     # Biên dịch và chạy test ROS 2, Firmware, Web
-│   ├── run_sim.sh                   # Khởi chạy mô phỏng Gazebo Harmonic & Renode
-│   ├── run_robot.sh                 # Khởi chạy phần cứng thực tế trên Jetson Nano
-│   ├── flash_mcu.sh                 # Nạp firmware an toàn cho STM32
-│   ├── run_web.sh                   # Chạy giao diện Web (FastAPI + Next.js)
-│   ├── run_bridge.sh                # Cầu nối ROS 1 (Jetson) <-> ROS 2 (Host)
+│   ├── run.sh                       # Trình chạy hợp nhất: sim, robot, web, bridge
+│   ├── flash.sh                     # Nạp firmware an toàn cho STM32
 │   └── install.sh                   # Cài đặt Udev rules và Systemd autostart
 ├── src/                              # Các ROS 2 Packages (Python / C++)
-│   ├── omni_bringup/                # Launch files tổng hợp hệ thống
+│   ├── omni_bringup/                # Launch files tổng hợp hệ thống (sim & real robot)
 │   ├── omni_control/                # Động học Mecanum/Omni 4 bánh & Bộ điều khiển
 │   ├── omni_description/            # Mô hình robot Xacro / URDF và Mesh 3D
-│   ├── omni_hardware/               # Giao tiếp phần cứng Stm32Bridge & Protocol
+│   ├── omni_hardware/               # Giao tiếp phần cứng Stm32Bridge, micro-ROS agent
 │   ├── omni_localization/           # Cấu hình SLAM Toolbox (Loop Closure) & EKF
 │   ├── omni_navigation/             # Cấu hình Nav2 stack, costmaps, planners
 │   ├── omni_perception/             # Bộ lọc LaserFilter và Safety Zone
 │   ├── omni_safety/                 # Watchdog bảo vệ, E-Stop và giới hạn vận tốc
 │   └── omni_simulation/             # Thế giới Gazebo amr_lab.sdf (dốc 5°-14°, gờ giảm tốc)
-└── web/                              # Giao diện Web Dashboard thời gian thực
-    ├── backend/                     # FastAPI backend, ROS 2 rclpy bridge, WebSocket hub
-    └── frontend/                    # Next.js 14, Tailwind CSS, Recharts, HTML5 Canvas
+├── systemd/                          # Dịch vụ tự khởi động hệ thống Linux (systemd)
+│   └── amr-bringup.service          # Service tự chạy robot khi boot (micro-ROS, bridge, web)
+├── udev/                             # Quy tắc định danh cố định cổng USB (udev rules)
+│   ├── 99-amr-stm32.rules           # Symlink cố định /dev/stm32 (STM32 VCP, CH340, CH343)
+│   └── 99-amr-lidar.rules           # Symlink cố định /dev/lidar (CP2102, FTDI)
+├── web/                              # Giao diện Web Dashboard thời gian thực
+│   ├── backend/                     # FastAPI backend, ROS 2 rclpy bridge, WebSocket hub
+│   └── frontend/                    # Next.js 14, Tailwind CSS, Recharts, HTML5 Canvas
+├── REVIEW.md                         # Khung tiêu chuẩn & tiêu chí thẩm định kỹ thuật toàn diện
+├── RULE.md                           # Bộ quy tắc kiến trúc và tiêu chuẩn mã nguồn dự án
+└── AGENTS.md                         # Hướng dẫn và quy tắc cho AI Agents & GitNexus
 ```
 
 ---
@@ -88,14 +93,20 @@ Tất cả các script đều hỗ trợ cờ `-h` hoặc `--help` và có thể
 
 | Script | Vai trò chính | Lệnh thông dụng |
 |---|---|---|
+| [`scripts/run.sh`](scripts/run.sh) | **Trình chạy hợp nhất** (`sim`, `robot`, `web`, `bridge`) | `./scripts/run.sh sim` hoặc `./scripts/run.sh robot` |
+| [`scripts/flash.sh`](scripts/flash.sh) | Nạp firmware an toàn cho STM32 | `./scripts/flash.sh --mcu stm32f4 --yes` |
 | [`scripts/setup.sh`](scripts/setup.sh) | Kiểm tra môi trường host, cài đặt PlatformIO và công cụ nạp | `./scripts/setup.sh --check` |
 | [`scripts/build.sh`](scripts/build.sh) | Biên dịch & kiểm thử toàn diện ROS 2, Firmware STM32, Web | `./scripts/build.sh --component all --test` |
-| [`scripts/run_sim.sh`](scripts/run_sim.sh) | Khởi chạy Gazebo Harmonic (GUI hoặc Headless) | `./scripts/run_sim.sh` |
-| [`scripts/run_robot.sh`](scripts/run_robot.sh) | Khởi chạy hardware bringup trên robot thực tế (Jetson) | `./scripts/run_robot.sh` |
-| [`scripts/flash_mcu.sh`](scripts/flash_mcu.sh) | Nạp firmware an toàn cho vi điều khiển STM32 | `./scripts/flash_mcu.sh --mcu stm32f4 --yes` |
-| [`scripts/run_web.sh`](scripts/run_web.sh) | Khởi động Web Cockpit (Backend FastAPI + Frontend Next.js) | `./scripts/run_web.sh` |
-| [`scripts/run_bridge.sh`](scripts/run_bridge.sh) | Kích hoạt cầu nối giao tiếp ROS 1 $\leftrightarrow$ ROS 2 | `./scripts/run_bridge.sh` |
-| [`scripts/install.sh`](scripts/install.sh) | Cài đặt Udev rules nhận diện cổng USB và Systemd service | `./scripts/install.sh all` |
+| [`scripts/install.sh`](scripts/install.sh) | Cài đặt Udev rules nhận diện cổng USB và Systemd service | `sudo ./scripts/install.sh all` |
+
+### Hướng dẫn sử dụng `scripts/run.sh` theo target:
+```bash
+./scripts/run.sh --help          # Hiển thị menu hướng dẫn tổng quát
+./scripts/run.sh sim --help      # Tùy chọn mô phỏng Gazebo Harmonic & Renode
+./scripts/run.sh robot --help    # Tùy chọn hardware bringup (micro-ROS, SLAM, Nav2)
+./scripts/run.sh web --help      # Tùy chọn Web Dashboard (FastAPI + Next.js)
+./scripts/run.sh bridge --help   # Tùy chọn bridge ROS 1 <-> ROS 2
+```
 
 ---
 
@@ -118,23 +129,52 @@ Hệ thống được chuẩn hóa trên môi trường **Ubuntu 24.04 LTS (ho�
 source install/ros2_jazzy/local_setup.bash
 ```
 
-### 5.3. Khởi chạy mô phỏng Gazebo
+### 5.3. Cài đặt ngoại vi phần cứng & Dịch vụ tự khởi động (Robot thật)
+Khi triển khai trên máy tính nhúng (Jetson / x86 SBC / Pi), thiết lập udev rules và systemd service:
+
+```bash
+# 1. Cài đặt udev rules nhận diện cố định /dev/stm32 và /dev/lidar
+sudo ./scripts/install.sh udev
+
+# 2. Cài đặt và kích hoạt dịch vụ tự khởi động khi bật nguồn
+sudo ./scripts/install.sh service
+
+# Hoặc cài đặt toàn bộ và kiểm tra trạng thái
+sudo ./scripts/install.sh all
+./scripts/install.sh status
+```
+
+### 5.4. Khởi chạy mô phỏng Gazebo
 Môi trường `amr_lab.sdf` tích hợp sẵn 3 loại dốc (5°, 10°, 14°), dải gờ giảm tốc thử thách hệ thống treo/IMU và các vật cản hẹp:
 
 ```bash
 # Khởi chạy mô phỏng có giao diện 3D
-./scripts/run_sim.sh
+./scripts/run.sh sim
 
 # Hoặc khởi chạy chế độ headless (cho máy chủ / CI không có màn hình)
-./scripts/run_sim.sh --headless --duration 60
+./scripts/run.sh sim --headless --duration 60
 ```
 
-### 5.4. Khởi chạy Web Mission Control
-Khởi động backend FastAPI và mở giao diện trình duyệt điều khiển:
+### 5.5. Khởi chạy Robot Thực Tế (Hardware Bringup)
+Khởi chạy hardware bringup với micro-ROS agent kết nối STM32 và giao diện Web:
 
 ```bash
-# Chạy Web Dashboard
-./scripts/run_web.sh
+# Khởi chạy bringup cơ bản (cổng mặc định /dev/stm32)
+./scripts/run.sh robot
+
+# Khởi chạy kèm SLAM Toolbox và Nav2 stack
+./scripts/run.sh robot --slam --nav
+```
+
+### 5.6. Khởi chạy Web Mission Control
+Khởi động backend FastAPI và giao diện điều khiển trình duyệt độc lập:
+
+```bash
+# Chạy Web Dashboard (cổng 8000)
+./scripts/run.sh web
+
+# Hoặc chạy Next.js chế độ hot-reload cho lập trình viên (cổng 3000)
+./scripts/run.sh web --dev
 ```
 Truy cập trình duyệt tại địa chỉ: `http://localhost:8000`
 
@@ -149,34 +189,61 @@ File cấu hình [`src/omni_localization/config/slam_params.yaml`](src/omni_loca
 - Không gian tìm kiếm vòng lặp mở rộng 10.0m với bộ nhớ stack 60MB.
 
 ### 6.2. An toàn vận hành đa lớp & Cơ chế E-Stop
-- **Command Watchdog:** Tự động phát lệnh vận tốc 0 khi mất kết nối điều khiển quá 250ms.
-- **Safety Zone:** Quét chướng ngại vật trong phạm vi nguy hiểm từ LiDAR để giảm tốc hoặc kích hoạt phanh dừng trước khi xảy ra va chạm.
+- **Command Watchdog:** Tự động phát lệnh vận tốc 0 khi mất kết nối điều khiển quá 500ms.
+- **Safety Zone:** Quét chướng ngại vật trong phạm vi nguy hiểm từ LiDAR; tự động kích hoạt phanh dừng an toàn (*fail-safe*) khi phát hiện lỗi đánh giá cảm biến.
 - **Phím Space E-Stop:** Nhấn phím Space trên Web Cockpit lập tức hủy toàn bộ mục tiêu tự hành (`active_goal = None`), reset bộ điều khiển và phát chuỗi 5 xung dừng đa kênh tới cả Jetson và STM32.
 
 ### 6.3. Firmware STM32 FreeRTOS & micro-ROS
 - Vòng lặp điều khiển PID vận tốc 4 bánh xe chu kỳ 10ms (100Hz) chống hiện tượng *derivative kick*.
 - Bộ lọc Kalman 1D trên từng kênh encoder bảo vệ chống đột biến vận tốc và giá trị NaN.
 - Khóa trường dữ liệu độc lập bảo vệ chống hiện tượng race condition giữa các tác vụ FreeRTOS.
+- Tích hợp giao tiếp micro-ROS serial tốc độ cao kết nối liền mạch với ROS 2.
+
+### 6.4. Sẵn sàng Triển Khai Phần Cứng Thật (Production Ready)
+- **Định danh cổng USB cố định ([`udev/`](udev/)):** Tự động tạo symlink cố định `/dev/stm32` (hỗ trợ STM32 VCP, chip CH340, CH343) và `/dev/lidar` (hỗ trợ CP2102, FTDI). Không lo nhảy tên cổng tty khi cắm lại hoặc khởi động lại.
+- **Dịch vụ hệ thống Linux ([`systemd/`](systemd/)):** File dịch vụ `amr-bringup.service` tự động khởi động sau khi mạng sẵn sàng (`network-online.target`), tự phục hồi khi gặp lỗi (`Restart=on-failure`), đồng bộ nhật ký qua `journald` và nạp sẵn toàn bộ biến môi trường ROS 2 Jazzy.
 
 ---
 
-## 7. Kiểm Thử Hệ Thống (QA & Testing)
+## 7. Khung Tiêu Chuẩn Thẩm Định Kỹ Thuật (`REVIEW.md`)
+
+Dự án áp dụng khung tiêu chuẩn thẩm định chuyên sâu [`REVIEW.md`](REVIEW.md) nhằm phục vụ kiểm toán mã nguồn, kiểm soát chất lượng kỹ thuật tự động hoặc độc lập:
+
+### 5 Nguyên tắc thẩm định cốt lõi:
+1. **Safety-First:** Mọi xử lý ngoại lệ bắt buộc phải *fail-safe* (dừng an toàn), nghiêm cấm *fail-open*.
+2. **Deterministic & Real-time:** Tuyệt đối không chứa blocking I/O hay tính toán nặng trên luồng chính / callback cảm biến.
+3. **Concurrency & Thread-Safety:** Ranh giới luồng rõ ràng, bảo vệ shared states bằng lock/mutex thích hợp.
+4. **Physical & Mathematical Fidelity:** Động học, ma trận quán tính (inertia tensor), giới hạn tốc độ và góc quay phải đúng cơ khí thật.
+5. **Actionable & Non-Redundant:** Tập trung vào nguyên nhân gốc rễ (root cause) và xuất báo cáo chuẩn tại `RESULT_REVIEW.md`.
+
+### 7 Tiêu chí đánh giá trọng số:
+- **Tiêu chí 1 (15%):** Kiến trúc hệ thống, phân tầng logic & cấu hình QoS.
+- **Tiêu chí 2 (20%):** Cơ chế an toàn (E-Stop, Watchdog, Safety Zones).
+- **Tiêu chí 3 (20%):** Hiệu năng tính toán, ngân sách chu kỳ & độ trễ toàn trình.
+- **Tiêu chí 4 (15%):** Quản lý luồng, bất đồng bộ & toàn vẹn dữ liệu.
+- **Tiêu chí 5 (10%):** Động học bánh xe Omni/Mecanum & tính toán vật lý.
+- **Tiêu chí 6 (10%):** Khả năng sẵn sàng trên phần cứng thật (udev, systemd, reconnect).
+- **Tiêu chí 7 (10%):** Chất lượng mã nguồn, tuân thủ DRY, gõ kiểu và kiểm thử tự động.
+
+---
+
+## 8. Kiểm Thử Hệ Thống (QA & Testing)
 
 Dự án duy trì bộ kiểm thử tự động toàn diện bao quát tất cả các tầng:
 
 ```bash
-# 1. Chạy Unit Test động học và mô phỏng
-python3 -m unittest src/omni_simulation/test/test_simulation_files.py
+# 1. Chạy Unit Test động học và mô phỏng ROS 2
+bash -c "source /opt/ros/jazzy/setup.bash && PYTHONPATH=src/omni_bringup:src/omni_hardware:src/omni_safety:src/omni_simulation:src/omni_description:src/omni_navigation:src/omni_localization:src/omni_control:src/omni_perception:\$PYTHONPATH /usr/bin/python3 -m pytest src/omni_bringup/test src/omni_hardware/test src/omni_safety/test src/omni_simulation/test src/omni_description/test src/omni_navigation/test src/omni_localization/test src/omni_perception/test -q"
 
-# 2. Chạy Kiểm thử Bộ lọc Cảm biến & Web Backend API
-web/backend/.venv/bin/pytest src/omni_perception/test/test_perception_files.py web/backend/tests/test_api.py web/backend/tests/test_grid_planner.py
+# 2. Chạy Kiểm thử Web Backend API & Grid Planner
+web/backend/.venv/bin/pytest web/backend/tests/test_grid_planner.py web/backend/tests/test_api.py web/backend/tests/test_ros2_bridge_concurrency.py -q
 ```
-*Kết quả xác minh:* **45/45 tests PASS (100%)**.
+*Kết quả xác minh:* **83/83 tests PASS (100%)** *(48 ROS 2 tests + 35 Web backend tests)*.
 
 ---
 
-## 8. Quy Tắc Phát Triển & Công Cụ Hỗ Trợ AI Agent
+## 9. Quy Tắc Phát Triển & Công Cụ Hỗ Trợ AI Agent
 
-- **Quy chuẩn phát triển:** Bắt buộc tuân thủ tài liệu hướng dẫn [`RULE.md`](RULE.md) và [`AGENTS.md`](AGENTS.md).
-- **GitNexus:** Bắt buộc chạy phân tích tác động `node .gitnexus/run.cjs impact` trước khi sửa hàm/class và chạy `node .gitnexus/run.cjs detect_changes` trước khi commit mã nguồn.
+- **Quy chuẩn phát triển:** Bắt buộc tuân thủ tài liệu hướng dẫn [`RULE.md`](RULE.md), [`AGENTS.md`](AGENTS.md) và tiêu chuẩn đánh giá [`REVIEW.md`](REVIEW.md).
+- **GitNexus:** Bắt buộc chạy phân tích tác động `node .gitnexus/run.cjs impact` trước khi sửa hàm/class và chạy `node .gitnexus/run.cjs detect-changes --repo amr_omni` trước khi commit mã nguồn.
 - **MCP Servers (`.vscode/mcp.json`):** Hệ thống tích hợp sẵn các máy chủ công cụ `chrome-devtools` (kiểm thử giao diện tự động), `next-ai-drawio` (vẽ sơ đồ), `context7` (tra cứu tài liệu), `ruflo` (điều phối đàn agent).

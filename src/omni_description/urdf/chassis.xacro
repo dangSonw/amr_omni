@@ -11,7 +11,7 @@
       </geometry></collision>
       <inertial>
         <mass value="3.0"/>
-        <inertia ixx="0.9" ixy="0.0" ixz="0.0" iyy="0.9" iyz="0.0" izz="0.01"/>
+        <inertia ixx="0.025" ixy="0.0" ixz="0.0" iyy="0.025" iyz="0.0" izz="0.034"/>
       </inertial>
     </link>
     <joint name="base_joint" type="fixed">

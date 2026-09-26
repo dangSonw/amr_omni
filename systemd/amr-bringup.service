@@ -1,0 +1,30 @@
+[Unit]
+Description=AMR Omni Autonomous Mobile Robot Production Bringup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sonev
+Group=sonev
+WorkingDirectory=/home/sonev/amr_omni
+Environment="ROS_DOMAIN_ID=0"
+Environment="RMW_IMPLEMENTATION=rmw_fastrtps_cpp"
+Environment="ROS_LOG_DIR=/home/sonev/.ros/log"
+ExecStart=/bin/bash -c '\
+  source /opt/ros/jazzy/setup.bash && \
+  source /home/sonev/amr_omni/install/setup.bash && \
+  ros2 launch omni_bringup real_robot_bringup.launch.py agent:=true web:=true'
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+LimitNOFILE=65536
+KillMode=mixed
+TimeoutStopSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=amr-omni
+
+[Install]
+WantedBy=multi-user.target

@@ -13,7 +13,6 @@ TOPICS = {
     'estop': 'estop',
     'wheel_odom': 'wheel/odom',
     'imu': 'imu/data',
-    'odom': 'wheel/odom',
     'status': 'status',
 }
 
@@ -23,6 +22,8 @@ def validate_twist(values, max_linear_speed_mps, max_angular_speed_rad_s):
         return False
     try:
         numeric_values = tuple(float(value) for value in values)
+        if any(math.isnan(v) or not math.isfinite(v) for v in numeric_values):
+            return False
         if _kinematics_validate_twist is not None:
             _kinematics_validate_twist(
                 numeric_values[0], numeric_values[1], numeric_values[2],
@@ -30,8 +31,7 @@ def validate_twist(values, max_linear_speed_mps, max_angular_speed_rad_s):
                 max_angular_speed_rad_s=max_angular_speed_rad_s,
             )
             return True
-        return (all(math.isfinite(value) for value in numeric_values) and
-                abs(numeric_values[0]) <= max_linear_speed_mps and
+        return (abs(numeric_values[0]) <= max_linear_speed_mps and
                 abs(numeric_values[1]) <= max_linear_speed_mps and
                 abs(numeric_values[2]) <= max_angular_speed_rad_s)
     except (TypeError, ValueError):

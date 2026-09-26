@@ -65,23 +65,31 @@ class TelemetryHub:
             bridge.reset_odometry()
 
     async def _broadcast_loop(self):
-        # Broadcast ở tần số 20 Hz
+        # Broadcast ở tần số 20 Hz, cache LiDAR ở tần số 10 Hz (100 ms)
         interval = 1.0 / 20.0
         bridge = get_bridge()
+        last_lidar_dump = None
+        last_lidar_time = 0.0
 
         while self.running:
             if self.active_connections:
                 try:
+                    now = time.monotonic()
+                    if last_lidar_dump is None or (now - last_lidar_time) >= 0.10:
+                        last_lidar_dump = bridge.get_lidar_telemetry().model_dump()
+                        last_lidar_time = now
+
+                    debug_telemetry = bridge.get_debug_telemetry()
                     payload = {
                         "type": "telemetry",
                         "status": bridge.get_status().model_dump(),
                         "wheels": bridge.get_wheel_telemetry().model_dump(),
                         "imu": bridge.get_imu_telemetry().model_dump(),
                         "odom": bridge.get_odometry().model_dump(),
-                        "lidar": bridge.get_lidar_telemetry().model_dump(),
+                        "lidar": last_lidar_dump,
                         "paths": bridge.get_path_telemetry().model_dump(),
                         "streams": [s.model_dump() for s in stream_monitor.get_all()],
-                        "debug": bridge.get_debug_telemetry().model_dump() if bridge.get_debug_telemetry() else None,
+                        "debug": debug_telemetry.model_dump() if debug_telemetry else None,
                         "calib": get_calib_telemetry_summary(),
                     }
                     message = json.dumps(payload)

@@ -25,6 +25,9 @@ def generate_launch_description():
     debug_telemetry = LaunchConfiguration('debug_telemetry')
     debug_telemetry_frequency_hz = LaunchConfiguration('debug_telemetry_frequency_hz')
 
+    agent_enabled = LaunchConfiguration('agent')
+    agent_port = LaunchConfiguration('agent_port')
+    agent_baudrate = LaunchConfiguration('agent_baudrate')
     web_enabled = LaunchConfiguration('web')
     web_port = LaunchConfiguration('web_port')
     localization_enabled = LaunchConfiguration('localization')
@@ -42,6 +45,17 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
         }],
         output='screen',
+    )
+
+    micro_ros_agent = Node(
+        package='micro_ros_agent',
+        executable='micro_ros_agent',
+        name='micro_ros_agent',
+        arguments=['serial', '--dev', agent_port, '-b', agent_baudrate],
+        output='screen',
+        respawn=True,
+        respawn_delay=2.0,
+        condition=IfCondition(agent_enabled),
     )
 
     stm32_bridge = Node(
@@ -108,18 +122,21 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument('use_sim_time', default_value='false'),
-        DeclareLaunchArgument('debug_telemetry', default_value='false'),
-        DeclareLaunchArgument('debug_telemetry_frequency_hz', default_value='2.0'),
-        DeclareLaunchArgument('web', default_value='false'),
-        DeclareLaunchArgument('web_port', default_value='8000'),
-        DeclareLaunchArgument('web_script', default_value=default_web_script),
-        DeclareLaunchArgument('python_bin', default_value=default_python_bin),
-        DeclareLaunchArgument('localization', default_value='true'),
-        DeclareLaunchArgument('slam', default_value='false'),
-        DeclareLaunchArgument('nav', default_value='false'),
-        DeclareLaunchArgument('perception', default_value='false'),
+        DeclareLaunchArgument('use_sim_time', default_value='false', description='Use simulation (Gazebo) clock if true'),
+        DeclareLaunchArgument('debug_telemetry', default_value='false', description='Enable high-frequency debug telemetry stream'),
+        DeclareLaunchArgument('debug_telemetry_frequency_hz', default_value='2.0', description='Debug telemetry publish frequency'),
+        DeclareLaunchArgument('web', default_value='false', description='Auto-start web backend server'),
+        DeclareLaunchArgument('web_port', default_value='8000', description='Port for web backend server'),
+        DeclareLaunchArgument('web_script', default_value=default_web_script, description='Path to run_backend.py script'),
+        DeclareLaunchArgument('python_bin', default_value=default_python_bin, description='Python binary for web backend'),
+        DeclareLaunchArgument('localization', default_value='true', description='Launch EKF localization filter'),
+        DeclareLaunchArgument('slam', default_value='false', description='Launch SLAM toolbox for online mapping'),
+        DeclareLaunchArgument('nav', default_value='false', description='Launch Nav2 stack'),
+        DeclareLaunchArgument('agent', default_value='true', description='Launch micro-ROS agent serial bridge to STM32'),
+        DeclareLaunchArgument('agent_port', default_value='/dev/stm32', description='Serial port for STM32 micro-ROS agent'),
+        DeclareLaunchArgument('agent_baudrate', default_value='115200', description='Baud rate for STM32 micro-ROS agent'),
         state_publisher,
+        micro_ros_agent,
         safety_watchdog,
         safety_zone,
         stm32_bridge,

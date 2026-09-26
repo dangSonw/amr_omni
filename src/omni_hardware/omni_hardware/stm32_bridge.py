@@ -1,3 +1,5 @@
+import threading
+
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -58,6 +60,7 @@ class Stm32Bridge(Node):
                 self.debug_telemetry_frequency_hz <= 0):
             raise ValueError('invalid STM32 bridge safety parameters')
 
+        self._lock = threading.Lock()  # Protects shared state for MultiThreadedExecutor safety
         self.last_command_time = self.get_clock().now()
         self.last_command = Twist()
         self.command_timed_out = True
@@ -90,43 +93,63 @@ class Stm32Bridge(Node):
                               self.max_angular_speed_rad_s):
             self.get_logger().warning('Ignoring invalid or unsafe cmd_vel')
             return
-        self.last_command_time = self.get_clock().now()
-        self.command_timed_out = False
-        self.last_command = message
+        now = self.get_clock().now()
+        cmd = Twist()
+        cmd.linear.x = float(values[0])
+        cmd.linear.y = float(values[1])
+        cmd.angular.z = float(values[2])
+        with self._lock:
+            self.last_command_time = now
+            self.command_timed_out = False
+            self.last_command = cmd
 
     def _on_status(self, message):
         self._publish_status('mcu: ' + str(message.data))
 
     def _on_odom(self, message):
-        self.last_odom = message
+        with self._lock:
+            self.last_odom = message
 
     def _on_imu(self, message):
-        self.last_imu = message
+        with self._lock:
+            self.last_imu = message
 
     def _print_telemetry(self):
-        if self.last_odom is None:
+        with self._lock:
+            odom = self.last_odom
+            imu = self.last_imu
+        if odom is None:
             self.get_logger().info('STM32 telemetry waiting for odom')
             return
-        pos = self.last_odom.pose.pose.position
-        vel = self.last_odom.twist.twist.linear
-        rot = self.last_odom.twist.twist.angular
+        pos = odom.pose.pose.position
+        vel = odom.twist.twist.linear
+        rot = odom.twist.twist.angular
         imu_info = ''
-        if self.last_imu is not None:
-            imu_info = ' imu_gz=%.2f' % self.last_imu.angular_velocity.z
+        if imu is not None:
+            imu_info = ' imu_gz=%.2f' % imu.angular_velocity.z
         self.get_logger().info(
             'STM32 odom pos=(%.2f, %.2f) vel=(vx=%.2f, vy=%.2f, wz=%.2f)%s' % (
                 pos.x, pos.y, vel.x, vel.y, rot.z, imu_info))
 
     def _publish_command(self):
-        age_sec = ((self.get_clock().now() - self.last_command_time).nanoseconds
+        # Thread-safe read for MultiThreadedExecutor compatibility
+        with self._lock:
+            last_cmd_time = self.last_command_time
+            last_cmd = self.last_command
+            was_timed_out = self.command_timed_out
+
+        age_sec = ((self.get_clock().now() - last_cmd_time).nanoseconds
                    * 1e-9)
         timed_out = age_sec > self.command_timeout_sec
-        if timed_out and not self.command_timed_out:
+        if timed_out and not was_timed_out:
             self._publish_status('stopped: command timeout')
-        self.command_timed_out = timed_out
+
+        with self._lock:
+            self.command_timed_out = timed_out
+
         if self.enabled:
             self.command_publisher.publish(Twist() if timed_out
-                                           else self.last_command)
+                                           else last_cmd)
 
     def _publish_status(self, text):
         message = String()

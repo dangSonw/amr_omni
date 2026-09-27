@@ -38,7 +38,7 @@ Hiệu chỉnh trực tiếp các thông số động học robot (bán kính b�
 ![Monitor Tab](example/03_tab_monitor.png)
 
 ### 2.4. Kiểm Toán Luồng Truyền Thông (Stream Audit Matrix)
-Bảng giám sát chi tiết 22 ROS topics trong hệ thống với tần số thực tế (Hz), độ trễ (Latency), số lượng gói tin và trạng thái kết nối (Active / Degraded / Idle) giữa Jetson, STM32 và Web.
+Bảng giám sát chi tiết 18 ROS topics trong hệ thống với tần số thực tế (Hz), độ trễ (Latency), số lượng gói tin và trạng thái kết nối (Active / Degraded / Idle) giữa Jetson, STM32 và Web.
 ![Stream Matrix](example/04_monitor_stream_matrix.png)
 
 ---
@@ -52,7 +52,7 @@ amr_omni/
 │   ├── 01_tab_cockpit.png           # Giao diện Cockpit & Bản đồ 2D
 │   ├── 02_tab_config.png            # Giao diện Cấu hình tham số & PID
 │   ├── 03_tab_monitor.png           # Giao diện Giám sát IMU & Vận tốc động cơ
-│   └── 04_monitor_stream_matrix.png # Bảng kiểm toán 22 topics thời gian thực
+│   └── 04_monitor_stream_matrix.png # Bảng kiểm toán 18 topics thời gian thực
 ├── firmware/                         # Mã nguồn STM32 PlatformIO (FreeRTOS + micro-ROS)
 │   ├── stm32_f407vg_arduino_sim/    # Source hoàn chỉnh cho STM32F407VG Discovery
 │   └── stm32_f407vg_stm3cube_sim/   # Scaffold cho STM32CubeIDE

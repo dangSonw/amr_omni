@@ -21,7 +21,8 @@ class SafetyZoneTest(unittest.TestCase):
             slow_zone_m=1.0, stop_zone_m=0.5
         )
         self.assertFalse(stop)
-        self.assertEqual(factor, 0.5)
+        # Smooth gradient: 0.2 + 0.8 * (0.75 - 0.5) / (1.0 - 0.5) = 0.60
+        self.assertAlmostEqual(factor, 0.60)
         self.assertAlmostEqual(min_d, 0.75)
 
     def test_stop_zone(self):

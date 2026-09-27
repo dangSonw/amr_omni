@@ -9,50 +9,16 @@ bt_navigator:
     odom_topic: /odometry/filtered
     bt_loop_duration: 10
     default_server_timeout: 20
-    plugin_lib_names:
-      - nav2_compute_path_to_pose_action_bt_node
-      - nav2_compute_path_through_poses_action_bt_node
-      - nav2_smooth_path_action_bt_node
-      - nav2_follow_path_action_bt_node
-      - nav2_spin_action_bt_node
-      - nav2_wait_action_bt_node
-      - nav2_back_up_action_bt_node
-      - nav2_clear_costmap_service_bt_node
-      - nav2_is_stuck_condition_bt_node
-      - nav2_goal_reached_condition_bt_node
-      - nav2_goal_updated_condition_bt_node
-      - nav2_globally_updated_goal_condition_bt_node
-      - nav2_is_path_valid_condition_bt_node
-      - nav2_initial_pose_received_condition_bt_node
-      - nav2_reinitialize_global_localization_service_bt_node
-      - nav2_rate_controller_bt_node
-      - nav2_distance_controller_bt_node
-      - nav2_speed_controller_bt_node
-      - nav2_truncate_path_action_bt_node
-      - nav2_truncate_path_local_action_bt_node
-      - nav2_goal_updater_node_bt_node
-      - nav2_recovery_node_bt_node
-      - nav2_pipeline_sequence_bt_node
-      - nav2_round_robin_node_bt_node
-      - nav2_transform_available_condition_bt_node
-      - nav2_time_expired_condition_bt_node
-      - nav2_path_expiring_timer_condition
-      - nav2_distance_traveled_condition_bt_node
-      - nav2_single_trigger_bt_node
-      - nav2_goal_updated_controller_bt_node
-      - nav2_is_battery_low_condition_bt_node
-      - nav2_navigate_through_poses_action_bt_node
-      - nav2_navigate_to_pose_action_bt_node
-      - nav2_remove_passed_goals_action_bt_node
-      - nav2_planner_selector_bt_node
-      - nav2_controller_selector_bt_node
-      - nav2_goal_checker_selector_bt_node
-      - nav2_controller_cancel_bt_node
-      - nav2_path_longer_on_approach_bt_node
-      - nav2_wait_cancel_bt_node
-      - nav2_spin_cancel_bt_node
-      - nav2_back_up_cancel_bt_node
-      - nav2_assisted_teleop_cancel_bt_node
+    wait_for_service_timeout: 1000
+    action_server_result_timeout: 900.0
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
 
 controller_server:
   ros__parameters:
@@ -62,7 +28,7 @@ controller_server:
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
-    progress_checker_plugin: "progress_checker"
+    progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
 
@@ -81,9 +47,9 @@ controller_server:
     # Holonomic MPPI Controller (supports simultaneous vx, vy, wz)
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 40
+      time_steps: 25
       model_dt: 0.05
-      batch_size: 1000
+      batch_size: 350
       vx_std: 0.2
       vy_std: 0.2
       wz_std: 0.3
@@ -91,8 +57,8 @@ controller_server:
       vx_min: -0.54
       vy_max: 0.54
       vy_min: -0.54
-      wz_max: 3.0
-      wz_min: -3.0
+      wz_max: 2.0
+      wz_min: -2.0
       iteration_count: 1
       temperature: 0.3
       gamma: 0.015
@@ -105,7 +71,7 @@ controller_server:
         min_turning_r: 0.0
       critics:
         - "ConstraintCritic"
-        - "ObstaclesCritic"
+        - "CostCritic"
         - "GoalCritic"
         - "GoalAngleCritic"
         - "PathAlignCritic"
@@ -116,14 +82,16 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 4.0
-      ObstaclesCritic:
+      CostCritic:
         enabled: true
         cost_power: 1
-        repulsion_weight: 3.5
-        critical_weight: 40.0
-        consider_footprint: true
-        collision_cost: 20000.0
-        near_goal_distance: 0.25
+        cost_weight: 3.81
+        near_collision_cost: 253
+        critical_cost: 300.0
+        consider_footprint: false
+        collision_cost: 1000000.0
+        near_goal_distance: 0.1
+        trajectory_point_step: 2
       GoalCritic:
         enabled: true
         cost_power: 1
@@ -166,7 +134,7 @@ planner_server:
     use_sim_time: true
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
+      plugin: "nav2_navfn_planner::NavfnPlanner"
       tolerance: 0.5
       use_astar: true
       allow_unknown: true
@@ -196,20 +164,20 @@ local_costmap:
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 5.0
-          raytrace_min_range: 0.08
+          raytrace_min_range: 0.14
           obstacle_max_range: 4.5
-          obstacle_min_range: 0.08
+          obstacle_min_range: 0.14
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.35
+        cost_scaling_factor: 8.0
+        inflation_radius: 0.21
       always_send_full_costmap: false
 
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      update_frequency: 1.5
+      publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: true
@@ -231,13 +199,13 @@ global_costmap:
           marking: true
           data_type: "LaserScan"
           raytrace_max_range: 5.0
-          raytrace_min_range: 0.08
+          raytrace_min_range: 0.14
           obstacle_max_range: 4.5
-          obstacle_min_range: 0.08
+          obstacle_min_range: 0.14
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.40
+        cost_scaling_factor: 7.5
+        inflation_radius: 0.22
       always_send_full_costmap: false
 
 behavior_server:
@@ -247,11 +215,11 @@ behavior_server:
     cycle_frequency: 10.0
     behavior_plugins: ["spin", "backup", "wait"]
     spin:
-      plugin: "nav2_behaviors/Spin"
+      plugin: "nav2_behaviors::Spin"
     backup:
-      plugin: "nav2_behaviors/BackUp"
+      plugin: "nav2_behaviors::BackUp"
     wait:
-      plugin: "nav2_behaviors/Wait"
+      plugin: "nav2_behaviors::Wait"
     global_frame: odom
     robot_base_frame: base_link
     transform_timeout: 0.2
@@ -266,8 +234,8 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.54, 0.54, 3.0]
-    min_velocity: [-0.54, -0.54, -3.0]
+    max_velocity: [0.54, 0.54, 2.0]
+    min_velocity: [-0.54, -0.54, -2.0]
     max_accel: [1.0, 1.0, 3.2]
     max_decel: [-1.0, -1.0, -3.2]
     odom_topic: "odometry/filtered"

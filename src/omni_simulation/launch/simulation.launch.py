@@ -62,10 +62,9 @@ def generate_launch_description():
     spawn = Node(
         package='ros_gz_sim',
         executable='create',
-        # Match the upstream 4w launch: the wheel contact geometry starts at
-        # z=0, so a 0.1 m spawn height prevents initial ground penetration.
+        # Spawn at 0.018m: wheel bottom is at -0.0155m, gently placing robot 2.5mm above ground without impact bounce
         arguments=['-topic', 'robot_description', '-name', 'amr_omni',
-                   '-z', '0.1'],
+                   '-z', '0.018'],
         output='screen',
     )
     bridge = Node(

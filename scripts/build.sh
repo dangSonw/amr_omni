@@ -98,6 +98,7 @@ source_ros2() {
   local setup_file="/opt/ros/${ROS_DISTRO}/setup.bash"
   [[ -f "$setup_file" ]] || die "ROS setup file not found: ${setup_file}"
   [[ "${ROS_VERSION:-}" != 1 ]] || die 'current shell contains ROS 1; open a clean shell.'
+  export PATH="/usr/bin:/usr/local/bin:${PATH}"
   set +u
   # shellcheck disable=SC1090
   source "$setup_file"

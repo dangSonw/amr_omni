@@ -25,11 +25,15 @@ def test_full_system_integration():
         res = client.get("/api/streams")
         assert res.status_code == 200
         streams = res.json()
+        assert len(streams) == 18
         stream_ids = {s["id"] for s in streams}
         assert "jetson_cmd_vel" in stream_ids
         assert "stm32_wheel_odom" in stream_ids
         assert "stm32_imu_data" in stream_ids
-        assert "stm32_status" in stream_ids
+        assert "stm32_debug_data" in stream_ids
+        assert "stm32_status" not in stream_ids
+        assert "hardware_status" not in stream_ids
+        assert "map" in stream_ids
 
         # 5. Send velocity command
         res = client.post("/api/cmd-vel", json={"linear_x": 0.25, "linear_y": 0.1, "angular_z": 0.5})

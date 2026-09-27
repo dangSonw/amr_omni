@@ -20,8 +20,6 @@ class Stm32Bridge(Node):
         self.declare_parameter('command_input_topic', TOPICS['safe_cmd_vel'])
         self.declare_parameter(
             'micro_ros_command_topic', TOPICS['stm32_cmd_vel'])
-        self.declare_parameter('status_topic', TOPICS['status'])
-        self.declare_parameter('hardware_status_topic', 'hardware_status')
         self.declare_parameter('odom_topic', TOPICS['wheel_odom'])
         self.declare_parameter('imu_topic', TOPICS['imu'])
         self.declare_parameter('command_timeout_sec', 0.25)
@@ -36,9 +34,6 @@ class Stm32Bridge(Node):
             self.get_parameter('command_input_topic').value)
         self.micro_ros_command_topic = str(
             self.get_parameter('micro_ros_command_topic').value)
-        self.status_topic = str(self.get_parameter('status_topic').value)
-        hardware_status_topic = str(
-            self.get_parameter('hardware_status_topic').value)
         odom_topic = str(self.get_parameter('odom_topic').value)
         imu_topic = str(self.get_parameter('imu_topic').value)
         self.command_timeout_sec = float(
@@ -66,14 +61,10 @@ class Stm32Bridge(Node):
         self.command_timed_out = True
         self.last_odom = None
         self.last_imu = None
-        self.hardware_status_publisher = self.create_publisher(
-            String, hardware_status_topic, 10)
         self.command_publisher = self.create_publisher(
             Twist, self.micro_ros_command_topic, 10)
         self.create_subscription(
             Twist, self.command_input_topic, self._on_command, 10)
-        self.create_subscription(
-            String, self.status_topic, self._on_status, 10)
         self.create_subscription(
             Odometry, odom_topic, self._on_odom, 10)
         self.create_subscription(
@@ -83,9 +74,8 @@ class Stm32Bridge(Node):
         if self.debug_telemetry:
             self.create_timer(1.0 / self.debug_telemetry_frequency_hz,
                               self._print_telemetry)
-        self._publish_status(
-            'disabled: micro-ROS command relay is inactive'
-            if not self.enabled else 'waiting: micro-ROS status')
+        if not self.enabled:
+            self.get_logger().info('micro-ROS command relay is inactive')
 
     def _on_command(self, message):
         values = (message.linear.x, message.linear.y, message.angular.z)
@@ -102,9 +92,6 @@ class Stm32Bridge(Node):
             self.last_command_time = now
             self.command_timed_out = False
             self.last_command = cmd
-
-    def _on_status(self, message):
-        self._publish_status('mcu: ' + str(message.data))
 
     def _on_odom(self, message):
         with self._lock:
@@ -142,7 +129,7 @@ class Stm32Bridge(Node):
                    * 1e-9)
         timed_out = age_sec > self.command_timeout_sec
         if timed_out and not was_timed_out:
-            self._publish_status('stopped: command timeout')
+            self.get_logger().warn('stopped: command timeout')
 
         with self._lock:
             self.command_timed_out = timed_out
@@ -150,11 +137,6 @@ class Stm32Bridge(Node):
         if self.enabled:
             self.command_publisher.publish(Twist() if timed_out
                                            else last_cmd)
-
-    def _publish_status(self, text):
-        message = String()
-        message.data = text
-        self.hardware_status_publisher.publish(message)
 
     def destroy_node(self):
         if self.enabled and rclpy.ok():

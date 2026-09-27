@@ -14,6 +14,7 @@ class StreamTracker:
         topic: str,
         message_type: str,
         target_frequency_hz: float,
+        stream_type: str = "stream",  # "stream", "command", "autonomy"
     ):
         self.stream_id = stream_id
         self.name = name
@@ -22,6 +23,7 @@ class StreamTracker:
         self.topic = topic
         self.message_type = message_type
         self.target_frequency_hz = target_frequency_hz
+        self.stream_type = stream_type
 
         self.packet_count = 0
         self.last_timestamp_sec = 0.0
@@ -39,25 +41,53 @@ class StreamTracker:
     def get_actual_frequency_hz(self, now: float) -> float:
         if len(self.packet_times) < 2:
             return 0.0
-        # Tính tần số trong cửa sổ 1 giây gần nhất
-        recent = [t for t in self.packet_times if now - t <= 1.0]
+        # Cửa sổ tính toán thích ứng theo tần số đích (tối thiểu 3.0s để không báo chậm ảo đối với stream 1Hz-2Hz)
+        window = max(3.0, 4.0 / max(0.1, self.target_frequency_hz))
+        recent = [t for t in self.packet_times if now - t <= window]
         if len(recent) < 2:
-            # Fallback tính theo khoảng thời gian giữa gói đầu và cuối
-            span = self.packet_times[-1] - self.packet_times[0]
-            return len(self.packet_times) / span if span > 0.05 else 0.0
+            return 0.0
         span = recent[-1] - recent[0]
         return (len(recent) - 1) / span if span > 0.05 else 0.0
 
     def get_status(self, now: float) -> str:
         if self.last_timestamp_sec == 0:
+            if self.stream_type in ("command", "autonomy"):
+                return "standby"
             return "offline"
+
         age = now - self.last_timestamp_sec
-        if age > 3.0:
-            return "offline"
-        if age > 1.0:
-            return "stale"
+
+        # Với lệnh điều khiển và tự hành: khi không có lệnh phát ra thì chuyển sang standby thay vì báo slow/lỗi
+        if self.stream_type in ("command", "autonomy"):
+            if age > 2.0:
+                return "standby"
+            return "active"
+
+        # Với stream liên tục (cảm biến, odom, camera, map)
+        if self.stream_type == "stream":
+            if self.target_frequency_hz <= 2.0:
+                timeout = max(5.0, 3.0 / self.target_frequency_hz)
+                if age > timeout:
+                    return "offline"
+                if age > timeout * 0.5:
+                    return "stale"
+            else:
+                if age > 3.0:
+                    return "offline"
+                if age > 1.5:
+                    return "stale"
+
+        # Đánh giá tần số thực tế (tránh cảnh báo chậm sai lệch trong môi trường WSL2/mô phỏng)
         actual_hz = self.get_actual_frequency_hz(now)
-        if actual_hz < (self.target_frequency_hz * 0.4):
+        if self.target_frequency_hz <= 2.0:
+            threshold = max(0.1, self.target_frequency_hz * 0.10)
+        elif "camera" in self.stream_id:
+            threshold = 0.5  # Camera trong WSL2 mô phỏng đạt >= 0.5Hz là mượt mà
+        else:
+            # Mô phỏng Gazebo trong WSL2 dùng kms_swrast có RTF ~0.08, nên stream 50Hz đạt ~3.5-4.0Hz tường
+            threshold = max(0.5, min(2.0, self.target_frequency_hz * 0.05))
+
+        if actual_hz < threshold:
             return "degraded"
         return "active"
 
@@ -89,7 +119,17 @@ class StreamMonitor:
 
     def _init_default_streams(self):
         defaults = [
-            # --- Nhóm 1: Giao Tiếp STM32 ↔ Jetson & Web ---
+            # --- Nhóm 1: Điều Khiển & Giao Tiếp STM32 (9 topics) ---
+            (
+                "navigation_cmd_vel",
+                "Lệnh Vận Tốc Điều Khiển (Web/Nav2 → Watchdog)",
+                "Web Cockpit / Nav2",
+                "Jetson (Watchdog)",
+                "cmd_vel",
+                "geometry_msgs/Twist",
+                20.0,
+                "command",
+            ),
             (
                 "watched_cmd_vel",
                 "Lệnh Đã Qua Watchdog (Watchdog → Safety Zone)",
@@ -98,15 +138,17 @@ class StreamMonitor:
                 "watched_cmd_vel",
                 "geometry_msgs/Twist",
                 50.0,
+                "command",
             ),
             (
                 "jetson_cmd_vel",
-                "Lệnh Vận Tốc An Toàn (Safety Zone → STM32)",
+                "Lệnh Vận Tốc An Toàn (Safety Zone → Bridge)",
                 "Jetson (Safety Zone)",
-                "STM32 MCU",
+                "Jetson (Bridge)",
                 "safe_cmd_vel",
                 "geometry_msgs/Twist",
                 50.0,
+                "command",
             ),
             (
                 "stm32_cmd_vel",
@@ -116,24 +158,27 @@ class StreamMonitor:
                 "stm32_cmd_vel",
                 "geometry_msgs/Twist",
                 50.0,
+                "command",
             ),
             (
                 "stm32_wheel_odom",
-                "Odometry Bánh Xe (STM32 → Jetson)",
+                "Odometry Vận Tốc Bánh Xe (STM32 → Jetson)",
                 "STM32 MCU (Encoders)",
-                "Jetson Nano (EKF)",
+                "Jetson (EKF)",
                 "wheel/odom",
                 "nav_msgs/Odometry",
                 50.0,
+                "stream",
             ),
             (
                 "stm32_imu_data",
                 "Dữ Liệu IMU Quaternion 9-DoF (BNO080 → Jetson)",
                 "BNO080 / STM32",
-                "Jetson Nano (EKF)",
+                "Jetson (EKF)",
                 "imu/data",
                 "sensor_msgs/Imu",
                 50.0,
+                "stream",
             ),
             (
                 "stm32_debug_data",
@@ -143,42 +188,7 @@ class StreamMonitor:
                 "debug/data",
                 "std_msgs/String",
                 50.0,
-            ),
-            (
-                "stm32_status",
-                "Trạng Thái Sức Khỏe MCU (STM32 → Jetson/Web)",
-                "STM32 MCU",
-                "Jetson & Web",
-                "status",
-                "std_msgs/String",
-                10.0,
-            ),
-            (
-                "stm32_diagnostics",
-                "Chẩn Đoán Phần Cứng STM32 (STM32 → Jetson)",
-                "STM32 MCU",
-                "Jetson Nano",
-                "diagnostics",
-                "diagnostic_msgs/DiagnosticArray",
-                10.0,
-            ),
-            (
-                "stm32_wheel_state",
-                "Chi Tiết Vận Tốc 4 Bánh (STM32 → Jetson)",
-                "STM32 MCU",
-                "Jetson Nano",
-                "wheel_state",
-                "std_msgs/Float32MultiArray",
-                50.0,
-            ),
-            (
-                "stm32_encoder_counts",
-                "Số Ticks Encoder 4 Bánh (STM32 → Jetson)",
-                "STM32 MCU",
-                "Jetson Nano",
-                "encoder_counts",
-                "std_msgs/Int32MultiArray",
-                50.0,
+                "stream",
             ),
             (
                 "config_cmd",
@@ -188,6 +198,7 @@ class StreamMonitor:
                 "config/cmd",
                 "std_msgs/String",
                 1.0,
+                "command",
             ),
             (
                 "estop",
@@ -197,26 +208,9 @@ class StreamMonitor:
                 "estop",
                 "std_msgs/Bool",
                 10.0,
+                "command",
             ),
-            (
-                "hardware_status",
-                "Trạng Thái Cầu Nối Phần Cứng (Bridge → Hệ Thống)",
-                "Jetson (Bridge)",
-                "Jetson System",
-                "hardware_status",
-                "std_msgs/String",
-                10.0,
-            ),
-            # --- Nhóm 2: Điều Khiển, Định Vị & Cảm Biến Môi Trường ---
-            (
-                "navigation_cmd_vel",
-                "Lệnh Vận Tốc Điều Khiển (Web/Nav2 → Watchdog)",
-                "Web Cockpit / Nav2",
-                "Jetson (Watchdog)",
-                "cmd_vel",
-                "geometry_msgs/Twist",
-                20.0,
-            ),
+            # --- Nhóm 2: An Toàn, Cảm Biến, Định Vị & Tự Hành (9 topics) ---
             (
                 "safety_stop",
                 "Cảnh Báo Dừng An Toàn LiDAR (Safety Zone → Hệ Thống)",
@@ -225,6 +219,7 @@ class StreamMonitor:
                 "safety_stop",
                 "std_msgs/Bool",
                 20.0,
+                "stream",
             ),
             (
                 "safety_speed_factor",
@@ -234,6 +229,7 @@ class StreamMonitor:
                 "safety_speed_factor",
                 "std_msgs/Float32",
                 20.0,
+                "stream",
             ),
             (
                 "sensor_lidar",
@@ -243,6 +239,7 @@ class StreamMonitor:
                 "scan",
                 "sensor_msgs/LaserScan",
                 10.0,
+                "stream",
             ),
             (
                 "localization_odom",
@@ -252,33 +249,37 @@ class StreamMonitor:
                 "odometry/filtered",
                 "nav_msgs/Odometry",
                 50.0,
+                "stream",
             ),
             (
                 "map",
-                "Bản Đồ Lưới Tọa Độ (SLAM → Nav2/Web)",
-                "Jetson (SLAM Toolbox)",
+                "Bản Đồ Lưới Tọa Độ (SLAM / GridMap → Nav2/Web)",
+                "Jetson (SLAM/GridMap)",
                 "Nav2 & Web",
                 "map",
                 "nav_msgs/OccupancyGrid",
                 1.0,
+                "stream",
             ),
             (
                 "global_plan",
-                "Đường Đi Toàn Cục (Nav2 → Web)",
-                "Jetson (Nav2 Planner)",
+                "Đường Đi Toàn Cục (Nav2/A* → Web)",
+                "Jetson (Nav2/A*)",
                 "Web Dashboard",
                 "plan",
                 "nav_msgs/Path",
                 2.0,
+                "autonomy",
             ),
             (
                 "local_plan",
-                "Quỹ Đạo Điều Khiển Cục Bộ (Nav2 → Web)",
-                "Jetson (Nav2 Controller)",
+                "Quỹ Đạo Điều Khiển Cục Bộ (Nav2/MPC → Web)",
+                "Jetson (Nav2/MPC)",
                 "Web Dashboard",
                 "local_plan",
                 "nav_msgs/Path",
                 10.0,
+                "autonomy",
             ),
             (
                 "camera_rgb",
@@ -288,9 +289,20 @@ class StreamMonitor:
                 "camera/image_raw",
                 "sensor_msgs/Image",
                 15.0,
+                "stream",
+            ),
+            (
+                "camera_depth",
+                "Luồng Ảnh Đo Độ Sâu (Depth Camera → Web)",
+                "Camera Depth Sensor",
+                "Web Dashboard",
+                "camera/depth/image_raw",
+                "sensor_msgs/Image",
+                15.0,
+                "stream",
             ),
         ]
-        for sid, name, src, dst, topic, msg_type, target_hz in defaults:
+        for sid, name, src, dst, topic, msg_type, target_hz, stream_type in defaults:
             self.streams[sid] = StreamTracker(
                 stream_id=sid,
                 name=name,
@@ -299,6 +311,7 @@ class StreamMonitor:
                 topic=topic,
                 message_type=msg_type,
                 target_frequency_hz=target_hz,
+                stream_type=stream_type,
             )
 
     def record(self, stream_id: str, payload_preview: Optional[str] = None):
@@ -313,6 +326,7 @@ class StreamMonitor:
                 topic=stream_id,
                 message_type="std_msgs/String",
                 target_frequency_hz=10.0,
+                stream_type="stream",
             )
             self.streams[stream_id].record_packet(payload_preview)
 
@@ -327,8 +341,9 @@ class StreamMonitor:
 
     def get_active_count(self) -> int:
         now = time.time()
-        return sum(1 for tracker in self.streams.values() if tracker.get_status(now) == "active")
+        return sum(1 for tracker in self.streams.values() if tracker.get_status(now) in ("active", "standby"))
 
 
 stream_monitor = StreamMonitor()
+
 

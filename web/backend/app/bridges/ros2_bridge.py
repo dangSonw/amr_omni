@@ -47,10 +47,15 @@ try:
     from nav_msgs.msg import OccupancyGrid, Odometry, Path
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.node import Node
-    from rclpy.qos import qos_profile_sensor_data
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
     from sensor_msgs.msg import Image, Imu, LaserScan
     from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32MultiArray, String
     HAS_RCLPY = True
+    qos_profile_map = QoSProfile(
+        depth=1,
+        durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        reliability=ReliabilityPolicy.RELIABLE,
+    )
 except ImportError as e:
     logger.debug(f"rclpy không thể import: {e}")
     HAS_RCLPY = False
@@ -71,6 +76,8 @@ except ImportError as e:
     Node = None
     SingleThreadedExecutor = None
     qos_profile_sensor_data = None
+    qos_profile_map = None
+
 
 
 class Ros2Bridge(BaseRobotBridge):
@@ -157,6 +164,10 @@ class Ros2Bridge(BaseRobotBridge):
         self.active_goal: Optional[dict] = None
         self.nav_state: str = "idle"
         self.autonomy_thread: Optional[threading.Thread] = None
+        self._last_external_map_time = 0.0
+        self._last_imu_data_time = 0.0
+        self.map_pub = None
+        self.map_timer = None
         self.cmd_vel_pub = None
         self.safe_cmd_vel_pub = None
         self.stm32_cmd_vel_pub = None
@@ -201,6 +212,11 @@ class Ros2Bridge(BaseRobotBridge):
         self.config_cmd_pub = self.node.create_publisher(String, "config/cmd", 10)
         if PoseStamped is not None:
             self.goal_pub = self.node.create_publisher(PoseStamped, "goal_pose", 10)
+        if Path is not None:
+            self.plan_pub = self.node.create_publisher(Path, "plan", 10)
+            self.local_plan_pub = self.node.create_publisher(Path, "local_plan", 10)
+        if OccupancyGrid is not None:
+            self.map_pub = self.node.create_publisher(OccupancyGrid, "map", qos_profile_map or 1)
 
         # Subscribers - Cảm biến môi trường & Gazebo (dùng SensorDataQoS BestEffort)
         self.node.create_subscription(LaserScan, "scan", self._on_scan, qos_profile_sensor_data)
@@ -212,27 +228,18 @@ class Ros2Bridge(BaseRobotBridge):
         self.node.create_subscription(Odometry, "odometry/filtered", self._on_odom, 10)
         if Imu is not None:
             self.node.create_subscription(Imu, "imu/data", self._on_imu, qos_profile_sensor_data)
-            self.node.create_subscription(Imu, "imu", self._on_imu, qos_profile_sensor_data)
-        self.node.create_subscription(String, "status", self._on_status, 10)
+            self.node.create_subscription(Imu, "imu", self._on_raw_imu, qos_profile_sensor_data)
         self.node.create_subscription(String, "debug/data", self._on_debug_data, 10)
-        if Float32MultiArray is not None:
-            self.node.create_subscription(Float32MultiArray, "wheel_state", self._on_wheel_state, 10)
-        if Int32MultiArray is not None:
-            self.node.create_subscription(Int32MultiArray, "encoder_counts", self._on_encoder_counts, 10)
-        if DiagnosticArray is not None:
-            self.node.create_subscription(DiagnosticArray, "diagnostics", self._on_diagnostics, 10)
 
         # Subscribers - Giám sát an toàn Jetson Watchdog & stm32_bridge
         self.node.create_subscription(Bool, "safety_stop", self._on_safety_stop, 10)
         self.node.create_subscription(Twist, "safe_cmd_vel", self._on_safe_cmd_vel, 10)
-        self.node.create_subscription(Twist, "watched_cmd_vel", self._on_watched_cmd_vel, 10)
-        self.node.create_subscription(Twist, "stm32_cmd_vel", self._on_stm32_cmd_vel, 10)
         if Float32 is not None:
             self.node.create_subscription(Float32, "safety_speed_factor", self._on_safety_speed_factor, 10)
 
-        # Subscribers - Autonomy & Telemetry nâng cao (Phase 5)
+        # Subscribers - Autonomy & Telemetry nâng cao
         if OccupancyGrid is not None:
-            self.node.create_subscription(OccupancyGrid, "map", self._on_map, 10)
+            self.node.create_subscription(OccupancyGrid, "map", self._on_map, qos_profile_map or 10)
         if Path is not None:
             self.node.create_subscription(Path, "plan", self._on_global_plan, 10)
             self.node.create_subscription(Path, "local_plan", self._on_local_plan, 10)
@@ -243,6 +250,9 @@ class Ros2Bridge(BaseRobotBridge):
             # Lắng nghe camera chiều sâu (Depth camera)
             self.node.create_subscription(Image, "camera/depth/image_raw", self._on_depth_camera, qos_profile_sensor_data)
             self.node.create_subscription(Image, "depth", self._on_depth_camera, qos_profile_sensor_data)
+
+        # Timer định kỳ 1.0s đồng bộ bản đồ OccupancyGrid tới topic /map và web monitor
+        self.map_timer = self.node.create_timer(1.0, self._on_map_timer)
 
         # Chạy executor trong background thread
         self.executor = SingleThreadedExecutor()
@@ -547,8 +557,8 @@ class Ros2Bridge(BaseRobotBridge):
             cur_y = self.odom_y
             cur_th = self.odom_theta
 
-        # Bỏ qua tích lũy bản đồ khi robot bị nghiêng pitch/roll > 2.0 độ (tránh tia laser quét trúng sàn nhà)
-        is_tilted = (roll > 2.0 or pitch > 2.0)
+        # Bỏ qua tích lũy bản đồ khi robot bị nghiêng pitch/roll > 1.5 độ (tránh tia laser quét trúng sàn nhà)
+        is_tilted = (roll > 1.5 or pitch > 1.5)
         if hasattr(self, "grid_planner") and self.grid_planner and points and not is_tilted:
             try:
                 self._scan_queue.put_nowait((cur_x, cur_y, cur_th, points))
@@ -623,27 +633,8 @@ class Ros2Bridge(BaseRobotBridge):
 
         stream_monitor.record("localization_odom", f"x={px:.2f}m, y={py:.2f}m, th={deg:.1f}°")
 
-    def _on_wheel_state(self, msg: Float32MultiArray):
-        data = list(msg.data)
-        # Format chuẩn từ STM32: 12 giá trị (4 measured, 4 target, 4 motor command)
-        with self._data_lock:
-            if len(data) >= 4:
-                self.measured_wheel_speeds = [float(v) for v in data[0:4]]
-            if len(data) >= 8:
-                self.target_wheel_speeds = [float(v) for v in data[4:8]]
-            if len(data) >= 12:
-                self.motor_commands = [float(v) for v in data[8:12]]
-            meas_summary = [round(v, 2) for v in self.measured_wheel_speeds]
-        stream_monitor.record("stm32_wheel_state", f"speeds={meas_summary} rad/s")
-
-    def _on_encoder_counts(self, msg: Int32MultiArray):
-        if len(msg.data) >= 4:
-            ticks = [int(v) for v in msg.data[:4]]
-            with self._data_lock:
-                self.encoder_ticks = ticks
-            stream_monitor.record("stm32_encoder_counts", f"ticks={ticks}")
-
     def _on_imu(self, msg: Imu):
+        self._last_imu_data_time = time.time()
         ax = float(msg.linear_acceleration.x)
         ay = float(msg.linear_acceleration.y)
         az = float(msg.linear_acceleration.z)
@@ -694,12 +685,26 @@ class Ros2Bridge(BaseRobotBridge):
 
         stream_monitor.record("stm32_imu_data", f"yaw={yaw_deg:.1f}°, gz={gz:.2f} rad/s")
 
+    def _on_raw_imu(self, msg: Imu):
+        # Chỉ dùng /imu thô từ Gazebo khi /imu/data từ STM32/EKF chưa xuất bản hoặc đã im lặng > 2.0s
+        if time.time() - getattr(self, "_last_imu_data_time", 0.0) < 2.0:
+            return
+        self._on_imu(msg)
+
     def _on_debug_data(self, msg: String):
         try:
             data = json.loads(msg.data)
             self.debug_telemetry = DebugTelemetry(**data)
             self.latest_calib_data.update(data)
-            stream_monitor.record("stm32_debug_data", f"debug data received ({len(msg.data)} bytes)")
+            with self._data_lock:
+                if "filtered_wheel_speed_rad_s" in data and isinstance(data["filtered_wheel_speed_rad_s"], list):
+                    self.measured_wheel_speeds = [float(v) for v in data["filtered_wheel_speed_rad_s"][:4]]
+                if "target_wheel_speed_rad_s" in data and isinstance(data["target_wheel_speed_rad_s"], list):
+                    self.target_wheel_speeds = [float(v) for v in data["target_wheel_speed_rad_s"][:4]]
+                if "motor_output" in data and isinstance(data["motor_output"], list):
+                    self.motor_commands = [float(v) for v in data["motor_output"][:4]]
+            meas_preview = [round(v, 2) for v in self.measured_wheel_speeds]
+            stream_monitor.record("stm32_debug_data", f"wheels={meas_preview} rad/s")
         except Exception as e:
             logger.debug(f"Error parsing debug/data: {e}")
 
@@ -722,12 +727,6 @@ class Ros2Bridge(BaseRobotBridge):
 
     def _on_status(self, msg: String):
         self.status_msg = str(msg.data)
-        stream_monitor.record("stm32_status", f"status: {msg.data[:30]}")
-
-    def _on_diagnostics(self, msg: DiagnosticArray):
-        count = len(msg.status)
-        first_msg = msg.status[0].message if count > 0 else "ok"
-        stream_monitor.record("stm32_diagnostics", f"entries={count}, {first_msg}")
 
     def _on_safety_stop(self, msg: Bool):
         self.safety_stop = bool(msg.data)
@@ -736,28 +735,63 @@ class Ros2Bridge(BaseRobotBridge):
     def _on_safe_cmd_vel(self, msg: Twist):
         stream_monitor.record("jetson_cmd_vel", f"safe: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
 
-    def _on_watched_cmd_vel(self, msg: Twist):
-        stream_monitor.record("watched_cmd_vel", f"watched: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
-
-    def _on_stm32_cmd_vel(self, msg: Twist):
-        stream_monitor.record("stm32_cmd_vel", f"stm32: vx={msg.linear.x:.2f}, vy={msg.linear.y:.2f}, wz={msg.angular.z:.2f}")
-
     def _on_safety_speed_factor(self, msg: Float32):
         stream_monitor.record("safety_speed_factor", f"factor={msg.data:.2f}")
 
     def _on_map(self, msg: OccupancyGrid):
-        try:
-            self.map_data = {
-                "resolution": float(msg.info.resolution),
-                "width": int(msg.info.width),
-                "height": int(msg.info.height),
-                "origin_x": float(msg.info.origin.position.x),
-                "origin_y": float(msg.info.origin.position.y),
-                "data": list(msg.data),
-            }
-            stream_monitor.record("map", f"{msg.info.width}x{msg.info.height} @ {msg.info.resolution:.2f}m")
-        except Exception as e:
-            logger.debug(f"Lỗi parse map: {e}")
+        external_pubs = 0
+        if self.node:
+            try:
+                external_pubs = self.node.count_publishers("map") - (1 if getattr(self, "map_pub", None) else 0)
+            except Exception:
+                pass
+        if external_pubs > 0:
+            self._last_external_map_time = time.time()
+            try:
+                self.map_data = {
+                    "resolution": float(msg.info.resolution),
+                    "width": int(msg.info.width),
+                    "height": int(msg.info.height),
+                    "origin_x": float(msg.info.origin.position.x),
+                    "origin_y": float(msg.info.origin.position.y),
+                    "data": list(msg.data),
+                }
+                stream_monitor.record("map", f"{msg.info.width}x{msg.info.height} @ {msg.info.resolution:.2f}m")
+            except Exception as e:
+                logger.debug(f"Lỗi parse map: {e}")
+
+    def _on_map_timer(self):
+        now = time.time()
+        external_pubs = 0
+        if self.node:
+            try:
+                external_pubs = self.node.count_publishers("map") - (1 if getattr(self, "map_pub", None) else 0)
+            except Exception:
+                pass
+        # Nếu có bản đồ từ SLAM bên ngoài (SLAM Toolbox) trong vòng 2.5s thì giữ nguyên
+        if external_pubs > 0 and (now - getattr(self, "_last_external_map_time", 0.0) < 2.5):
+            return
+        if hasattr(self, "grid_planner") and self.grid_planner:
+            with self._planner_lock:
+                grid_dict = self.grid_planner.to_occupancy_grid()
+            self.map_data = grid_dict
+            stream_monitor.record("map", f"{grid_dict['width']}x{grid_dict['height']} @ {grid_dict['resolution']:.2f}m")
+            if getattr(self, "map_pub", None) and OccupancyGrid is not None and self.running and self.node:
+                try:
+                    msg = OccupancyGrid()
+                    msg.header.stamp = self.node.get_clock().now().to_msg()
+                    msg.header.frame_id = "map"
+                    msg.info.resolution = float(grid_dict["resolution"])
+                    msg.info.width = int(grid_dict["width"])
+                    msg.info.height = int(grid_dict["height"])
+                    msg.info.origin.position.x = float(grid_dict["origin_x"])
+                    msg.info.origin.position.y = float(grid_dict["origin_y"])
+                    msg.info.origin.position.z = 0.0
+                    msg.info.origin.orientation.w = 1.0
+                    msg.data = [int(v) for v in grid_dict["data"]]
+                    self.map_pub.publish(msg)
+                except Exception as e:
+                    logger.debug(f"Lỗi publish map timer: {e}")
 
     def _on_global_plan(self, msg: Path):
         path = [[float(p.pose.position.x), float(p.pose.position.y)] for p in msg.poses]
@@ -826,6 +860,25 @@ class Ros2Bridge(BaseRobotBridge):
         msg.linear.y = float(vy)
         msg.angular.z = float(wz)
         self.cmd_vel_pub.publish(msg)
+
+    def _publish_path_msg(self, publisher, points, frame_id="map"):
+        if not publisher or not self.running or not self.node or not points:
+            return
+        try:
+            msg = Path()
+            msg.header.frame_id = frame_id
+            msg.header.stamp = self.node.get_clock().now().to_msg()
+            for pt in points:
+                pose = PoseStamped()
+                pose.header = msg.header
+                pose.pose.position.x = float(pt[0])
+                pose.pose.position.y = float(pt[1])
+                pose.pose.position.z = 0.0
+                pose.pose.orientation.w = 1.0
+                msg.poses.append(pose)
+            publisher.publish(msg)
+        except Exception:
+            pass
 
     def _compute_nav_velocities(
         self,
@@ -1007,6 +1060,8 @@ class Ros2Bridge(BaseRobotBridge):
                     with self._data_lock:
                         self.global_path = new_path
                     g_path = new_path
+                    self._publish_path_msg(getattr(self, "plan_pub", None), new_path)
+                    stream_monitor.record("global_plan", f"{len(new_path)} waypoints")
 
             # 3. Tính toán quỹ đạo tối ưu MPC né vật cản
             vr_x, vr_y, wz, dist, local_path = self.mpc_controller.compute(
@@ -1022,6 +1077,8 @@ class Ros2Bridge(BaseRobotBridge):
             with self._data_lock:
                 self.nav_state = "navigating"
                 self.local_path = local_path
+            self._publish_path_msg(getattr(self, "local_plan_pub", None), local_path)
+            stream_monitor.record("local_plan", f"{len(local_path)} points")
             self._publish_twist(vr_x, vr_y, wz)
 
     def get_battery_telemetry(self) -> BatteryTelemetry:
@@ -1089,6 +1146,10 @@ class Ros2Bridge(BaseRobotBridge):
         with self._data_lock:
             self.global_path = g_path
             self.local_path = l_path
+        self._publish_path_msg(getattr(self, "plan_pub", None), g_path)
+        self._publish_path_msg(getattr(self, "local_plan_pub", None), l_path)
+        stream_monitor.record("global_plan", f"{len(g_path)} waypoints")
+        stream_monitor.record("local_plan", f"{len(l_path)} points")
 
         # Phát hành tới Nav2 /goal_pose nếu stack Nav2 đang chạy
         if self.running and self.node and self.goal_pub:

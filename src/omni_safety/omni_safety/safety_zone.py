@@ -8,8 +8,8 @@ def evaluate_safety_zone(
     angle_increment: float,
     vx: float = 0.0,
     vy: float = 0.0,
-    slow_zone_m: float = 1.0,
-    stop_zone_m: float = 0.5,
+    slow_zone_m: float = 0.40,
+    stop_zone_m: float = 0.22,
     min_valid_range_m: float = 0.08,
 ) -> Tuple[bool, float, float]:
     """
@@ -28,16 +28,17 @@ def evaluate_safety_zone(
     immediate_bubble_m = max(min_valid_range_m + 0.05, stop_zone_m * 0.4)
 
     min_dist = float("inf")
+    two_pi = 2.0 * math.pi
+    pi = math.pi
+
     for i, r in enumerate(ranges):
         if not math.isfinite(r) or r < min_valid_range_m:
             continue
 
         if moving:
             beam_angle = angle_min + i * angle_increment
-            angle_diff = math.atan2(
-                math.sin(beam_angle - heading_rad),
-                math.cos(beam_angle - heading_rad)
-            )
+            # Fast angle difference normalization to [-pi, pi] without sin/cos/atan2
+            angle_diff = (beam_angle - heading_rad + pi) % two_pi - pi
             in_motion_cone = abs(angle_diff) <= cone_half_angle_rad
             in_immediate_bubble = r < immediate_bubble_m
 
@@ -50,7 +51,10 @@ def evaluate_safety_zone(
     if min_dist < stop_zone_m:
         return True, 0.0, min_dist
     elif min_dist < slow_zone_m:
-        return False, 0.5, min_dist
+        ratio = (min_dist - stop_zone_m) / (slow_zone_m - stop_zone_m)
+        speed_factor = 0.2 + 0.8 * ratio
+        return False, round(speed_factor, 3), min_dist
     else:
         return False, 1.0, min_dist
+
 

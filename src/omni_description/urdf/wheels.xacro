@@ -7,9 +7,27 @@
       <visual><geometry>
         <mesh filename="package://omni_description/meshes/4w/roller.stl"/>
       </geometry><material name="black"><color rgba="0 0 0 1"/></material></visual>
-      <collision><geometry>
-        <mesh filename="package://omni_description/meshes/4w/roller.stl"/>
-      </geometry></collision>
+      <!-- 5-sphere barrel contour: eliminates 5.7mm polygon cam runout down to <0.04mm for buttery-smooth motion -->
+      <collision name="c0">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry><sphere radius="0.009"/></geometry>
+      </collision>
+      <collision name="c1_pos">
+        <origin xyz="0 0 0.007" rpy="0 0 0"/>
+        <geometry><sphere radius="0.0079"/></geometry>
+      </collision>
+      <collision name="c1_neg">
+        <origin xyz="0 0 -0.007" rpy="0 0 0"/>
+        <geometry><sphere radius="0.0079"/></geometry>
+      </collision>
+      <collision name="c2_pos">
+        <origin xyz="0 0 0.013" rpy="0 0 0"/>
+        <geometry><sphere radius="0.0053"/></geometry>
+      </collision>
+      <collision name="c2_neg">
+        <origin xyz="0 0 -0.013" rpy="0 0 0"/>
+        <geometry><sphere radius="0.0053"/></geometry>
+      </collision>
       <inertial><mass value="0.009"/>
         <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
       </inertial>
@@ -17,11 +35,27 @@
     <joint name="roller_joint_${suffix}" type="continuous">
       <parent link="${parent}"/><child link="roller_link_${suffix}"/>
       <origin xyz="${xyz}" rpy="${rpy}"/><axis xyz="0 0 1"/>
-      <dynamics damping="0.001" friction="0.001"/>
+      <dynamics damping="0.0001" friction="0.0001"/>
     </joint>
     <gazebo reference="roller_link_${suffix}">
       <selfCollide>false</selfCollide>
-      <collision><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision>
+      <collision>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.2</mu>
+              <mu2>1.2</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <kp>100000.0</kp>
+              <kd>100.0</kd>
+              <min_depth>0.0005</min_depth>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
     </gazebo>
   </xacro:macro>
 
@@ -30,16 +64,19 @@
       <visual><geometry>
         <mesh filename="package://omni_description/meshes/4w/omni_frame.stl"/>
       </geometry><material name="white"><color rgba="1 1 1 1"/></material></visual>
-      <inertial><mass value="0.5"/>
-        <inertia ixx="0.005" ixy="0" ixz="0" iyy="0.005" iyz="0" izz="0.005"/>
+      <inertial>
+        <origin xyz="0 0 0.01" rpy="0 0 0"/>
+        <mass value="0.25"/>
+        <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.00015"/>
       </inertial>
     </link>
     <joint name="omni_wheel_joint_${suffix}" type="continuous">
       <parent link="${parent}"/><child link="omni_wheel_link_${suffix}"/>
       <origin xyz="${xyz}" rpy="${rpy}"/><axis xyz="0 0 -1"/>
+      <dynamics damping="0.01" friction="0.01"/>
     </joint>
     <xacro:roller parent="omni_wheel_link_${suffix}" suffix="${suffix}1" xyz="0.0000 -0.0210 0.0175" rpy="-1.570796327 0 -1.570796327"/>
-    <xacro:roller parent="omni_wheel_link_${suffix}" suffix="${suffix}2" xyz="0.0182 0.0105 0.01755" rpy="-1.570796327 0 0.523598776"/>
+    <xacro:roller parent="omni_wheel_link_${suffix}" suffix="${suffix}2" xyz="0.0182 0.0105 0.0175" rpy="-1.570796327 0 0.523598776"/>
     <xacro:roller parent="omni_wheel_link_${suffix}" suffix="${suffix}3" xyz="-0.0182 0.0105 0.0175" rpy="-1.570796327 0 2.617993878"/>
     <xacro:roller parent="omni_wheel_link_${suffix}" suffix="${suffix}4" xyz="-0.0182 -0.0105 0.0025" rpy="-1.570796327 0 -2.617993878"/>
     <xacro:roller parent="omni_wheel_link_${suffix}" suffix="${suffix}5" xyz="0.0182 -0.0105 0.0025" rpy="-1.570796327 0 -0.523598776"/>

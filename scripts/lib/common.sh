@@ -54,6 +54,7 @@ source_ros_setup() {
     die "ROS setup file not found: ${setup_file}"
   fi
 
+  export PATH="/usr/bin:/usr/local/bin:${PATH}"
   set +u
   # shellcheck disable=SC1090
   source "$setup_file"
@@ -66,6 +67,8 @@ resolve_python_executable() {
   local venv_python="${root_dir}/web/backend/.venv/bin/python3"
   if [[ -x "$venv_python" ]]; then
     printf '%s' "$venv_python"
+  elif [[ -x "/usr/bin/python3" ]]; then
+    printf '%s' "/usr/bin/python3"
   else
     command -v python3 || printf '%s' "python3"
   fi

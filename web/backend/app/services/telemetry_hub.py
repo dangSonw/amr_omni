@@ -66,11 +66,15 @@ class TelemetryHub:
             bridge.reset_odometry()
 
     async def _broadcast_loop(self):
-        # Broadcast ở tần số 20 Hz, cache LiDAR ở tần số 10 Hz (100 ms)
-        interval = 1.0 / 20.0
+        # Broadcast ở tần số 10 Hz (100 ms) tối ưu CPU cho web dashboard
+        interval = 1.0 / 10.0
         bridge = get_bridge()
         last_lidar_dump = None
         last_lidar_time = 0.0
+        last_streams_dump = []
+        last_streams_time = 0.0
+        last_calib_dump = None
+        last_calib_time = 0.0
 
         while self.running:
             if self.active_connections:
@@ -79,6 +83,15 @@ class TelemetryHub:
                     if last_lidar_dump is None or (now - last_lidar_time) >= 0.10:
                         last_lidar_dump = bridge.get_lidar_telemetry().model_dump()
                         last_lidar_time = now
+
+                    # Streams và Calib chỉ cần cập nhật mỗi 1.0s để tiết kiệm CPU và giảm rác bộ nhớ (GC)
+                    if not last_streams_dump or (now - last_streams_time) >= 1.0:
+                        last_streams_dump = [s.model_dump() for s in stream_monitor.get_all()]
+                        last_streams_time = now
+
+                    if last_calib_dump is None or (now - last_calib_time) >= 1.0:
+                        last_calib_dump = get_calib_telemetry_summary()
+                        last_calib_time = now
 
                     debug_telemetry = bridge.get_debug_telemetry()
                     payload = {
@@ -89,9 +102,9 @@ class TelemetryHub:
                         "odom": bridge.get_odometry().model_dump(),
                         "lidar": last_lidar_dump,
                         "paths": bridge.get_path_telemetry().model_dump(),
-                        "streams": [s.model_dump() for s in stream_monitor.get_all()],
+                        "streams": last_streams_dump,
                         "debug": debug_telemetry.model_dump() if debug_telemetry else None,
-                        "calib": get_calib_telemetry_summary(),
+                        "calib": last_calib_dump,
                     }
                     message = json.dumps(payload)
 

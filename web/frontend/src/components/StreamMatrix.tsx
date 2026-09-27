@@ -23,6 +23,7 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
 
   const totalCount = streams?.length ?? 0;
   const activeCount = streams?.filter((s) => s.status === "active").length ?? 0;
+  const standbyCount = streams?.filter((s) => s.status === "standby").length ?? 0;
   const degradedCount = streams?.filter((s) => s.status === "degraded").length ?? 0;
   const offlineCount = streams?.filter((s) => s.status === "offline" || s.status === "stale").length ?? 0;
 
@@ -33,7 +34,6 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
       s.id.includes("calib") ||
       s.id.includes("config") ||
       s.id === "estop" ||
-      s.id === "hardware_status" ||
       s.source.includes("STM32") ||
       s.destination.includes("STM32");
 
@@ -85,7 +85,7 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
           <Activity className="h-5 w-5 text-charcoal" />
           <div>
             <h2 className="text-sm sm:text-base font-bold tracking-wider">
-              STREAM AUDIT // 22 TOPICS
+              STREAM AUDIT // {totalCount || 18} TOPICS
             </h2>
             <p className="text-[11px] text-graphite font-mono">
               REAL-TIME COMM MATRIX (JETSON ↔ STM32 ↔ WEB)
@@ -98,14 +98,21 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
           <span className="inline-flex items-center gap-1 border border-charcoal bg-sketch-mint px-2 py-0.5 shadow-[-2px_2px_0px_#383838]">
             <CheckCircle2 className="h-3.5 w-3.5 text-charcoal" /> {activeCount} ACTIVE
           </span>
-          {degradedCount > 0 && (
-            <span className="inline-flex items-center gap-1 border border-charcoal bg-canary px-2 py-0.5 shadow-[-2px_2px_0px_#383838]">
-              <AlertTriangle className="h-3.5 w-3.5 text-charcoal" /> {degradedCount} DEGRADED
+          {standbyCount > 0 && (
+            <span className="inline-flex items-center gap-1 border border-charcoal bg-sky px-2 py-0.5 shadow-[-2px_2px_0px_#383838]">
+              <Radio className="h-3.5 w-3.5 text-charcoal" /> {standbyCount} STANDBY
             </span>
           )}
-          <span className="inline-flex items-center gap-1 border border-charcoal bg-chalk px-2 py-0.5 text-graphite shadow-[-2px_2px_0px_#383838]">
-            <Radio className="h-3.5 w-3.5 text-graphite" /> {offlineCount} IDLE
-          </span>
+          {degradedCount > 0 && (
+            <span className="inline-flex items-center gap-1 border border-charcoal bg-canary px-2 py-0.5 shadow-[-2px_2px_0px_#383838]">
+              <AlertTriangle className="h-3.5 w-3.5 text-charcoal" /> {degradedCount} SLOW
+            </span>
+          )}
+          {offlineCount > 0 && (
+            <span className="inline-flex items-center gap-1 border border-charcoal bg-chalk px-2 py-0.5 text-graphite shadow-[-2px_2px_0px_#383838]">
+              <XCircle className="h-3.5 w-3.5 text-graphite" /> {offlineCount} IDLE
+            </span>
+          )}
         </div>
       </div>
 
@@ -262,9 +269,13 @@ export function StreamMatrix({ streams }: StreamMatrixProps) {
 
                     {/* Status */}
                     <td className="py-2 px-3">
-                      {isHealthy ? (
+                      {stream.status === "active" ? (
                         <span className="inline-flex items-center gap-1 font-bold text-[10px] bg-sketch-mint text-charcoal px-1.5 py-0.5 border border-charcoal">
                           <CheckCircle2 className="h-3 w-3" /> ACTIVE
+                        </span>
+                      ) : stream.status === "standby" ? (
+                        <span className="inline-flex items-center gap-1 font-bold text-[10px] bg-sky text-charcoal px-1.5 py-0.5 border border-charcoal">
+                          <Radio className="h-3 w-3" /> STANDBY
                         </span>
                       ) : isDegraded ? (
                         <span className="inline-flex items-center gap-1 font-bold text-[10px] bg-canary text-charcoal px-1.5 py-0.5 border border-charcoal">

@@ -2,9 +2,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_packages_with_prefixes
 import os
 
 
@@ -40,20 +40,76 @@ def generate_launch_description():
     navigation_share = get_package_share_directory('omni_navigation')
     perception_share = get_package_share_directory('omni_perception')
 
+    installed_pkgs = get_packages_with_prefixes()
+    has_laser_filters = 'laser_filters' in installed_pkgs
+    has_slam_toolbox = 'slam_toolbox' in installed_pkgs
+    has_robot_localization = 'robot_localization' in installed_pkgs
+    has_nav2 = 'nav2_controller' in installed_pkgs
+
+    missing_pkgs = []
+    if not has_robot_localization:
+        missing_pkgs.append('ros-jazzy-robot-localization')
+    if not has_slam_toolbox:
+        missing_pkgs.append('ros-jazzy-slam-toolbox')
+    if not has_nav2:
+        missing_pkgs.append('ros-jazzy-navigation2 ros-jazzy-nav2-bringup')
+    if not has_laser_filters:
+        missing_pkgs.append('ros-jazzy-laser-filters')
+
+    if missing_pkgs:
+        print("\n" + "=" * 76)
+        print("[AMR OMNI NOTICE] Một số gói ROS 2 chưa được cài đặt trên hệ thống WSL2:")
+        for pkg in missing_pkgs:
+            print(f"  • {pkg}")
+        print("\nĐể kích hoạt đầy đủ các topic (/odometry/filtered, /map, /plan...),")
+        print("bạn hãy chạy lệnh sau trong terminal:")
+        print(f"  sudo apt update && sudo apt install -y {' '.join(missing_pkgs)}")
+        print("=" * 76 + "\n")
+
+    need_ekf = IfCondition(
+        PythonExpression([
+            "( '", localization_enabled, "' == 'true' or '",
+            slam_enabled, "' == 'true' or '",
+            nav_enabled, "' == 'true' ) and '",
+            str(has_robot_localization).lower(), "' == 'true'"
+        ])
+    )
+
+    slam_condition = IfCondition(
+        PythonExpression([
+            "'", slam_enabled, "' == 'true' and '",
+            str(has_slam_toolbox).lower(), "' == 'true'"
+        ])
+    )
+
+    nav_condition = IfCondition(
+        PythonExpression([
+            "'", nav_enabled, "' == 'true' and '",
+            str(has_nav2).lower(), "' == 'true'"
+        ])
+    )
+
+    perception_condition = IfCondition(
+        PythonExpression([
+            "'", perception_enabled, "' == 'true' and '",
+            str(has_laser_filters).lower(), "' == 'true'"
+        ])
+    )
+
     ekf_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(localization_share, 'launch', 'ekf.launch.py')
         ),
         launch_arguments={'use_sim_time': use_sim_time}.items(),
-        condition=IfCondition(localization_enabled),
+        condition=need_ekf,
     )
 
     slam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(localization_share, 'launch', 'slam.launch.py')
         ),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
-        condition=IfCondition(slam_enabled),
+        launch_arguments={'use_sim_time': use_sim_time, 'launch_ekf': 'false'}.items(),
+        condition=slam_condition,
     )
 
     nav_launch = IncludeLaunchDescription(
@@ -61,7 +117,7 @@ def generate_launch_description():
             os.path.join(navigation_share, 'launch', 'navigation.launch.py')
         ),
         launch_arguments={'use_sim_time': use_sim_time}.items(),
-        condition=IfCondition(nav_enabled),
+        condition=nav_condition,
     )
 
     perception_launch = IncludeLaunchDescription(
@@ -69,7 +125,7 @@ def generate_launch_description():
             os.path.join(perception_share, 'launch', 'perception.launch.py')
         ),
         launch_arguments={'use_sim_time': use_sim_time}.items(),
-        condition=IfCondition(perception_enabled),
+        condition=perception_condition,
     )
 
     # Định vị thư mục workspace và script web backend
@@ -100,7 +156,7 @@ def generate_launch_description():
         DeclareLaunchArgument('debug_telemetry', default_value='false'),
         DeclareLaunchArgument(
             'debug_telemetry_frequency_hz', default_value='2.0'),
-        DeclareLaunchArgument('web', default_value='false',
+        DeclareLaunchArgument('web', default_value='true',
                               description='Launch FastAPI web monitoring & control interface'),
         DeclareLaunchArgument('web_port', default_value='8000',
                               description='Port for FastAPI web server'),
@@ -108,13 +164,13 @@ def generate_launch_description():
                               description='Path to web runner script'),
         DeclareLaunchArgument('python_bin', default_value=default_python_bin,
                               description='Path to Python interpreter for web'),
-        DeclareLaunchArgument('localization', default_value='false',
+        DeclareLaunchArgument('localization', default_value='true',
                               description='Launch EKF odometry fusion'),
-        DeclareLaunchArgument('slam', default_value='false',
+        DeclareLaunchArgument('slam', default_value='true',
                               description='Launch SLAM Toolbox for 2D mapping'),
-        DeclareLaunchArgument('nav', default_value='false',
+        DeclareLaunchArgument('nav', default_value='true',
                               description='Launch Nav2 autonomous navigation stack'),
-        DeclareLaunchArgument('perception', default_value='false',
+        DeclareLaunchArgument('perception', default_value='true',
                               description='Launch laser filtering and depth perception pipeline'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(simulation),

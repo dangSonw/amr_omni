@@ -65,7 +65,7 @@ export interface StreamInfo {
   packet_count: number;
   last_timestamp_sec: number;
   latency_ms: number;
-  status: "active" | "degraded" | "stale" | "offline";
+  status: "active" | "degraded" | "stale" | "offline" | "standby";
   payload_preview?: string | null;
 }
 

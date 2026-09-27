@@ -544,6 +544,53 @@ class GridMapPlanner:
         )
         return dense_result
 
+    def to_occupancy_grid(self) -> dict:
+        """Xuất dữ liệu bản đồ lưới sang định dạng OccupancyGrid chuẩn ROS."""
+        res = float(self.cell_size)
+        if not self.occupied_cells:
+            w, h = 80, 80
+            return {
+                "resolution": res,
+                "width": w,
+                "height": h,
+                "origin_x": -round((w * res) / 2.0, 3),
+                "origin_y": -round((h * res) / 2.0, 3),
+                "data": [0] * (w * h),
+            }
+
+        min_gx = min(c[0] for c in self.occupied_cells) - 8
+        max_gx = max(c[0] for c in self.occupied_cells) + 8
+        min_gy = min(c[1] for c in self.occupied_cells) - 8
+        max_gy = max(c[1] for c in self.occupied_cells) + 8
+
+        w = int(min(250, max(50, max_gx - min_gx + 1)))
+        h = int(min(250, max(50, max_gy - min_gy + 1)))
+        ox = float(min_gx * res)
+        oy = float(min_gy * res)
+
+        grid_data = [0] * (w * h)
+        for gx, gy in self.inscribed_cells:
+            ix = gx - min_gx
+            iy = gy - min_gy
+            if 0 <= ix < w and 0 <= iy < h:
+                grid_data[iy * w + ix] = 70
+
+        for gx, gy in self.occupied_cells:
+            ix = gx - min_gx
+            iy = gy - min_gy
+            if 0 <= ix < w and 0 <= iy < h:
+                grid_data[iy * w + ix] = 100
+
+        return {
+            "resolution": res,
+            "width": w,
+            "height": h,
+            "origin_x": round(ox, 3),
+            "origin_y": round(oy, 3),
+            "data": grid_data,
+        }
+
+
 
 class OmniMpcController:
     """Holonomic Model Predictive Controller (Omni MPC) for Mecanum Robot.

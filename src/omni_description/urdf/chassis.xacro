@@ -6,11 +6,15 @@
       <visual><geometry>
         <mesh filename="package://omni_description/meshes/4w/base_link.dae"/>
       </geometry></visual>
-      <collision><geometry>
-        <mesh filename="package://omni_description/meshes/4w/base_link.stl"/>
-      </geometry></collision>
+      <collision>
+        <origin xyz="0 0 0.0455" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.25 0.25 0.091"/>
+        </geometry>
+      </collision>
       <inertial>
-        <mass value="3.0"/>
+        <origin xyz="0 0 0.02" rpy="0 0 0"/>
+        <mass value="3.5"/>
         <inertia ixx="0.025" ixy="0.0" ixz="0.0" iyy="0.025" iyz="0.0" izz="0.034"/>
       </inertial>
     </link>
@@ -18,5 +22,8 @@
       <parent link="${parent}"/><child link="base_link"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
     </joint>
+    <gazebo reference="base_link">
+      <selfCollide>false</selfCollide>
+    </gazebo>
   </xacro:macro>
 </robot>

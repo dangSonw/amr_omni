@@ -110,10 +110,10 @@ run_sim() {
   local skip_build_check=false
   local launch_web=true
   local web_port=8000
-  local enable_slam=false
-  local enable_nav=false
-  local enable_localization=false
-  local enable_perception=false
+  local enable_slam=true
+  local enable_nav=true
+  local enable_localization=true
+  local enable_perception=true
   local ros_launch_args=()
   local gazebo_command=()
   local renode_command=()
@@ -389,17 +389,33 @@ run_sim() {
         enable_localization=true
         shift
         ;;
+      --no-slam)
+        enable_slam=false
+        shift
+        ;;
       --nav)
         enable_nav=true
         enable_localization=true
+        shift
+        ;;
+      --no-nav)
+        enable_nav=false
         shift
         ;;
       --localization)
         enable_localization=true
         shift
         ;;
+      --no-localization)
+        enable_localization=false
+        shift
+        ;;
       --perception)
         enable_perception=true
+        shift
+        ;;
+      --no-perception)
+        enable_perception=false
         shift
         ;;
       --ros-arg)

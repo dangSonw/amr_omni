@@ -11,8 +11,8 @@ from omni_safety.safety_zone import evaluate_safety_zone
 class SafetyZoneNode(Node):
     def __init__(self):
         super().__init__('safety_zone_node')
-        self.declare_parameter('slow_zone_m', 1.0)
-        self.declare_parameter('stop_zone_m', 0.5)
+        self.declare_parameter('slow_zone_m', 0.40)
+        self.declare_parameter('stop_zone_m', 0.22)
         self.declare_parameter('publish_frequency_hz', 20.0)
 
         self.slow_zone_m = float(self.get_parameter('slow_zone_m').value)

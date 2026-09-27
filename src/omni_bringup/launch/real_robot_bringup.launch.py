@@ -91,7 +91,7 @@ def generate_launch_description():
 
     slam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(localization_share, 'launch', 'slam.launch.py')),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        launch_arguments={'use_sim_time': use_sim_time, 'launch_ekf': 'false'}.items(),
         condition=IfCondition(slam_enabled),
     )
 

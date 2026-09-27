@@ -39,12 +39,15 @@ def test_get_streams():
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) >= 4
+    assert len(data) == 18
     stream_ids = [s["id"] for s in data]
     assert "jetson_cmd_vel" in stream_ids
     assert "stm32_wheel_odom" in stream_ids
     assert "stm32_imu_data" in stream_ids
-    assert "stm32_status" in stream_ids
+    assert "stm32_debug_data" in stream_ids
+    assert "stm32_status" not in stream_ids
+    assert "hardware_status" not in stream_ids
+    assert "map" in stream_ids
 
 
 def test_send_cmd_vel():

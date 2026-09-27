@@ -13,7 +13,7 @@ TOPICS = {
     'estop': 'estop',
     'wheel_odom': 'wheel/odom',
     'imu': 'imu/data',
-    'status': 'status',
+    'debug_data': 'debug/data',
 }
 
 

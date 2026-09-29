@@ -5,6 +5,6 @@ command_watchdog:
 
 safety_zone_node:
   ros__parameters:
-    slow_zone_m: 0.40
-    stop_zone_m: 0.22
+    slow_zone_m: 0.28
+    stop_zone_m: 0.15
     publish_frequency_hz: 20.0

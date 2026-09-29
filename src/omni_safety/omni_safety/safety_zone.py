@@ -8,8 +8,8 @@ def evaluate_safety_zone(
     angle_increment: float,
     vx: float = 0.0,
     vy: float = 0.0,
-    slow_zone_m: float = 0.40,
-    stop_zone_m: float = 0.22,
+    slow_zone_m: float = 0.28,
+    stop_zone_m: float = 0.15,
     min_valid_range_m: float = 0.08,
 ) -> Tuple[bool, float, float]:
     """

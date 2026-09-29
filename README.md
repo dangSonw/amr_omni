@@ -130,13 +130,23 @@ source install/ros2_jazzy/local_setup.bash
 ```
 
 ### 5.3. Khởi chạy mô phỏng Gazebo
-Môi trường `amr_lab.sdf` tích hợp sẵn 3 loại dốc (5°, 10°, 14°), dải gờ giảm tốc thử thách hệ thống treo/IMU và các vật cản hẹp:
+Hệ thống hỗ trợ 3 preset thế giới và pipeline nhận diện vật thể AI qua camera:
+- **`amr_lab` (Mặc định):** Phòng lab 10x10m có 3 loại dốc (5°, 10°, 14°), dải gờ giảm tốc (8-12mm), tường ngăn hẹp và người đi bộ di động.
+- **`outdoor`:** Không gian đô thị ngoài trời 50x50m với ngã tư đường, nhà cửa, thùng rác, công viên cây xanh, người đi bộ và xe hàng di chuyển.
+- **`maze`:** Mê cung 10x10m tạo tự động với hành lang hẹp 0.63m kiểm tra khả năng vượt khe hẹp của thuật toán Nav2 MPPI và Safety Zone.
 
 ```bash
-# Khởi chạy mô phỏng có giao diện 3D (kèm Web Dashboard :8000)
+# 1. Khởi chạy phòng lab mặc định (kèm Web Dashboard :8000)
 ./scripts/run.sh sim
 
-# Hoặc khởi chạy chế độ headless (cho máy chủ / CI không có màn hình)
+# 2. Khởi chạy với thế giới tùy chọn (amr_lab, outdoor, maze)
+./scripts/run.sh sim --world maze
+./scripts/run.sh sim --world outdoor
+
+# 3. Khởi chạy kèm pipeline AI nhận diện vật thể qua camera (YOLOv8 / YOLO11)
+./scripts/run.sh sim --camera --model yolov8n
+
+# 4. Khởi chạy chế độ headless (cho máy chủ / CI không có màn hình GUI)
 ./scripts/run.sh sim --headless --duration 60
 ```
 
@@ -232,13 +242,13 @@ Dự án áp dụng khung tiêu chuẩn thẩm định chuyên sâu [`REVIEW.md`
 Dự án duy trì bộ kiểm thử tự động toàn diện bao quát tất cả các tầng:
 
 ```bash
-# 1. Chạy Unit Test động học và mô phỏng ROS 2
-bash -c "source /opt/ros/jazzy/setup.bash && PYTHONPATH=src/omni_bringup:src/omni_hardware:src/omni_safety:src/omni_simulation:src/omni_description:src/omni_navigation:src/omni_localization:src/omni_control:src/omni_perception:\$PYTHONPATH /usr/bin/python3 -m pytest src/omni_bringup/test src/omni_hardware/test src/omni_safety/test src/omni_simulation/test src/omni_description/test src/omni_navigation/test src/omni_localization/test src/omni_perception/test -q"
+# 1. Chạy toàn bộ Unit Tests ROS 2 (73 tests trên 9 packages)
+./scripts/build.sh --component ros2 --test-only
 
-# 2. Chạy Kiểm thử Web Backend API & Grid Planner
+# 2. Chạy Kiểm thử Web Backend API & Grid Planner (36 tests)
 web/backend/.venv/bin/pytest web/backend/tests/test_grid_planner.py web/backend/tests/test_api.py web/backend/tests/test_ros2_bridge_concurrency.py -q
 ```
-*Kết quả xác minh:* **84/84 tests PASS (100%)** *(48 ROS 2 tests + 36 Web backend tests)*.
+*Kết quả xác minh:* **109/109 tests PASS (100%)** *(73 ROS 2 tests + 36 Web backend tests)*.
 
 ---
 

@@ -78,6 +78,26 @@ class SafetyZoneTest(unittest.TestCase):
         self.assertTrue(stop)
         self.assertEqual(factor, 0.0)
 
+    def test_narrow_space_stop_at_14cm_ns04(self):
+        # NS-04: obstacle at 14cm (< stop_zone_m 0.15m) -> stop
+        ranges = [0.14, 2.0, 2.0, 2.0]
+        stop, factor, min_d = evaluate_safety_zone(
+            ranges, angle_min=0.0, angle_increment=0.1
+        )
+        self.assertTrue(stop)
+        self.assertEqual(factor, 0.0)
+        self.assertAlmostEqual(min_d, 0.14)
+
+    def test_narrow_space_continue_at_16cm_ns05(self):
+        # NS-05: obstacle at 16cm (> stop_zone_m 0.15m) -> continue (slow down factor > 0)
+        ranges = [0.16, 2.0, 2.0, 2.0]
+        stop, factor, min_d = evaluate_safety_zone(
+            ranges, angle_min=0.0, angle_increment=0.1
+        )
+        self.assertFalse(stop)
+        self.assertGreater(factor, 0.0)
+        self.assertAlmostEqual(min_d, 0.16)
+
 
 if __name__ == '__main__':
     unittest.main()

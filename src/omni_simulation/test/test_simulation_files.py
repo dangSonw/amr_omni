@@ -6,7 +6,10 @@ import xml.etree.ElementTree as element_tree
 class SimulationFilesTest(unittest.TestCase):
     def test_world_is_well_formed_sdf(self):
         root = os.path.dirname(os.path.dirname(__file__))
-        element_tree.parse(os.path.join(root, 'worlds', 'amr_lab.sdf'))
+        for world_name in ('amr_lab.sdf', 'outdoor.sdf', 'maze.sdf'):
+            world_path = os.path.join(root, 'worlds', world_name)
+            self.assertTrue(os.path.isfile(world_path), f"World file {world_name} missing")
+            element_tree.parse(world_path)
 
     def test_simulation_config_and_bridge_are_present(self):
         root = os.path.dirname(os.path.dirname(__file__))
@@ -47,10 +50,38 @@ class SimulationFilesTest(unittest.TestCase):
         path = os.path.join(root, 'launch', 'simulation.launch.py')
         with open(path) as stream:
             text = stream.read()
-        self.assertIn("'-z', '0.1'", text)
+        self.assertIn("'-z', '0.018'", text)
         self.assertIn('--headless-rendering', text)
         with open(os.path.join(root, 'worlds', 'amr_lab.sdf')) as stream:
             self.assertIn('<mu>1.0</mu><mu2>1.0</mu2>', stream.read())
+
+    def test_world_presets_and_fail_fast(self):
+        import importlib.util
+        root = os.path.dirname(os.path.dirname(__file__))
+        launch_path = os.path.join(root, 'launch', 'simulation.launch.py')
+        spec = importlib.util.spec_from_file_location('sim_launch', launch_path)
+        sim_launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sim_launch)
+
+        resolve = sim_launch.resolve_world_path
+        self.assertIn('amr_lab', sim_launch.WORLD_PRESETS)
+        self.assertIn('outdoor', sim_launch.WORLD_PRESETS)
+        self.assertIn('maze', sim_launch.WORLD_PRESETS)
+
+        path, name = resolve('amr_lab', root)
+        self.assertTrue(path.endswith('amr_lab.sdf'))
+        self.assertEqual(name, 'amr_lab')
+
+        path, name = resolve('outdoor', root)
+        self.assertTrue(path.endswith('outdoor.sdf'))
+        self.assertEqual(name, 'outdoor')
+
+        path, name = resolve('maze', root)
+        self.assertTrue(path.endswith('maze.sdf'))
+        self.assertEqual(name, 'maze')
+
+        with self.assertRaises(FileNotFoundError):
+            resolve('nonexistent_world', root)
 
     def test_bridge_has_sensor_and_actuator_contracts(self):
         root = os.path.dirname(os.path.dirname(__file__))

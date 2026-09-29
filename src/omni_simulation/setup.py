@@ -17,7 +17,11 @@ setup(
             'config/gz_bridge.yaml',
             'config/simulation.yaml',
         ]),
-        ('share/' + package_name + '/worlds', ['worlds/amr_lab.sdf']),
+        ('share/' + package_name + '/worlds', [
+            'worlds/amr_lab.sdf',
+            'worlds/outdoor.sdf',
+            'worlds/maze.sdf',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

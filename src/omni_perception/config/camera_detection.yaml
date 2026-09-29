@@ -1,0 +1,7 @@
+camera_detector_node:
+  ros__parameters:
+    model: "yolov8n"
+    confidence_threshold: 0.5
+    device: "cpu"
+    publish_debug_image: true
+    max_fps: 15.0

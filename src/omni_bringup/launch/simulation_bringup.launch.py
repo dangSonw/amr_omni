@@ -35,6 +35,8 @@ def generate_launch_description():
     slam_enabled = LaunchConfiguration('slam')
     nav_enabled = LaunchConfiguration('nav')
     perception_enabled = LaunchConfiguration('perception')
+    perception_camera = LaunchConfiguration('perception_camera')
+    perception_model = LaunchConfiguration('perception_model')
 
     localization_share = get_package_share_directory('omni_localization')
     navigation_share = get_package_share_directory('omni_navigation')
@@ -124,7 +126,11 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(perception_share, 'launch', 'perception.launch.py')
         ),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'camera': perception_camera,
+            'model': perception_model,
+        }.items(),
         condition=perception_condition,
     )
 
@@ -172,6 +178,10 @@ def generate_launch_description():
                               description='Launch Nav2 autonomous navigation stack'),
         DeclareLaunchArgument('perception', default_value='true',
                               description='Launch laser filtering and depth perception pipeline'),
+        DeclareLaunchArgument('perception_camera', default_value='false',
+                              description='Enable camera object detection node'),
+        DeclareLaunchArgument('perception_model', default_value='yolov8n',
+                              description='Perception detector model type/preset'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(simulation),
             launch_arguments={

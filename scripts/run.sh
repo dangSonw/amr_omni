@@ -27,7 +27,10 @@ Targets:
   bridge      Launch ROS 1 <-> ROS 2 communication bridge
 
 Quick Examples:
-  scripts/run.sh sim                                    # Start Gazebo simulation + Web UI (:8000)
+  scripts/run.sh sim                                    # Start Gazebo simulation (amr_lab) + Web UI (:8000)
+  scripts/run.sh sim --world maze                       # Run simulation in 10x10m maze world
+  scripts/run.sh sim --world outdoor                    # Run simulation in 50x50m outdoor world
+  scripts/run.sh sim --camera --model yolov8n           # Run simulation with camera object detection
   scripts/run.sh sim --headless --no-web                # Headless Gazebo, no web UI
   scripts/run.sh robot                                  # Real robot bringup with STM32 agent & Web UI
   scripts/run.sh robot --agent-port /dev/ttyACM0        # Hardware bringup with custom serial port
@@ -57,7 +60,7 @@ model; this script does not build implicitly or open a real USB device.
 
 Options:
   --mode gazebo|renode|both  Simulation backend (default: gazebo)
-  --world PATH               Gazebo SDF world (default: amr_lab.sdf)
+  --world PATH|PRESET        Gazebo SDF world preset (amr_lab, outdoor, maze) or path (default: amr_lab)
   --headless                 Start Gazebo server with off-screen rendering
   --use-sim-time BOOL        ROS use_sim_time value (default: true)
   --duration SEC             Stop the selected process after SEC seconds
@@ -68,6 +71,8 @@ Options:
   --slam                     Enable SLAM Toolbox online mapping (/map)
   --nav                      Enable Nav2 autonomous navigation stack (/plan, /local_plan)
   --perception               Enable perception pipeline (laser filter & depth)
+  --camera                   Enable camera object detection pipeline (default: false)
+  --model NAME               Detector model name: yolov8n, yolov11n, yolov8n-seg (default: yolov8n)
   --board NAME               Renode board shortcut (default: stm32f4_discovery)
   --renode-script PATH       Renode .resc file; overrides --board
   --firmware PATH            ELF firmware passed to the Renode script
@@ -78,14 +83,22 @@ Options:
   --ros-arg ARG              Add one ros2 launch argument (repeatable)
   -h, --help                 Show this help
 
+World Presets:
+  amr_lab                    10x10m indoor lab world with ramps (5°, 10°, 14°) and bump strips
+  outdoor                    50x50m outdoor world with intersection, houses, trees, pedestrians, moving cart
+  maze                       10x10m narrow maze world with 0.63m corridors for narrow-space navigation
+
 Renode board shortcuts:
   stm32f4_discovery, stm32f103, stm32f746, stm32l072
 
 Examples:
-  scripts/run.sh sim                                    # Gazebo simulation + Web dashboard (:8000)
+  scripts/run.sh sim                                    # Gazebo simulation (amr_lab) + Web dashboard (:8000)
+  scripts/run.sh sim --world maze                       # Run simulation in 10x10 maze world
+  scripts/run.sh sim --world outdoor                    # Run simulation in 50x50 outdoor world
+  scripts/run.sh sim --camera --model yolov8n           # Run simulation with YOLO camera detection
   scripts/run.sh sim --no-web                           # Simulation only, no web backend
   scripts/run.sh sim --web-port 8080                    # Serve web interface on custom port
-  scripts/run.sh sim --mode gazebo --headless --world src/omni_simulation/worlds/amr_lab.sdf
+  scripts/run.sh sim --mode gazebo --headless --world maze
   scripts/run.sh sim --mode renode --board stm32f4_discovery --renode-duration 5s
   scripts/run.sh sim --mode renode --renode-script ./my_board.resc --firmware ./build/app.elf
   scripts/run.sh sim --mode both --headless --duration 30
@@ -114,6 +127,8 @@ run_sim() {
   local enable_nav=true
   local enable_localization=true
   local enable_perception=true
+  local enable_camera=false
+  local perception_model="yolov8n"
   local ros_launch_args=()
   local gazebo_command=()
   local renode_command=()
@@ -223,8 +238,16 @@ run_sim() {
 
   build_gazebo_command() {
     local world_file="$world"
-    if [[ -z "$world_file" ]]; then
+    if [[ -z "$world_file" || "$world_file" == "amr_lab" ]]; then
       world_file="${ROOT_DIR}/src/omni_simulation/worlds/amr_lab.sdf"
+    elif [[ "$world_file" == "outdoor" ]]; then
+      world_file="${ROOT_DIR}/src/omni_simulation/worlds/outdoor.sdf"
+    elif [[ "$world_file" == "maze" ]]; then
+      world_file="${ROOT_DIR}/src/omni_simulation/worlds/maze.sdf"
+    elif [[ -f "${ROOT_DIR}/src/omni_simulation/worlds/${world_file}.sdf" ]]; then
+      world_file="${ROOT_DIR}/src/omni_simulation/worlds/${world_file}.sdf"
+    elif [[ -f "${ROOT_DIR}/src/omni_simulation/worlds/${world_file}" ]]; then
+      world_file="${ROOT_DIR}/src/omni_simulation/worlds/${world_file}"
     else
       world_file="$(resolve_path "$world_file")"
     fi
@@ -238,7 +261,9 @@ run_sim() {
       "localization:=${enable_localization}"
       "slam:=${enable_slam}"
       "nav:=${enable_nav}"
-      "perception:=${enable_perception}")
+      "perception:=${enable_perception}"
+      "perception_camera:=${enable_camera}"
+      "perception_model:=${perception_model}")
     if [[ "$launch_web" == true ]]; then
       local py_bin
       py_bin="$(resolve_python_executable "$ROOT_DIR")"
@@ -417,6 +442,19 @@ run_sim() {
       --no-perception)
         enable_perception=false
         shift
+        ;;
+      --camera)
+        enable_camera=true
+        shift
+        ;;
+      --no-camera)
+        enable_camera=false
+        shift
+        ;;
+      --model)
+        [[ $# -ge 2 ]] || die '--model requires a model name'
+        perception_model="$2"
+        shift 2
         ;;
       --ros-arg)
         [[ $# -ge 2 ]] || die '--ros-arg requires NAME:=VALUE'

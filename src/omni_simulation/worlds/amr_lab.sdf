@@ -258,5 +258,30 @@
     <model name="lab_sign"><static>true</static><pose>0 4.88 1.55 0 0 0</pose><link name="link">
       <visual name="visual"><geometry><box><size>2.6 0.04 0.55</size></box></geometry><material><ambient>0.06 0.10 0.20 1</ambient><diffuse>0.10 0.18 0.34 1</diffuse></material></visual>
     </link></model>
+
+    <!-- Dynamic Pedestrian Obstacle for Camera & Lidar Perception testing (Pure offline geometry) -->
+    <actor name="test_pedestrian">
+      <script><loop>true</loop><auto_start>true</auto_start>
+        <trajectory id="0" type="walk">
+          <waypoint><time>0</time><pose>2 0 0 0 0 0</pose></waypoint>
+          <waypoint><time>8</time><pose>2 4 0 0 0 1.5707</pose></waypoint>
+          <waypoint><time>10</time><pose>2 4 0 0 0 3.1415</pose></waypoint>
+          <waypoint><time>18</time><pose>2 0 0 0 0 3.1415</pose></waypoint>
+          <waypoint><time>20</time><pose>2 0 0 0 0 0</pose></waypoint>
+        </trajectory>
+      </script>
+      <link name="body">
+        <visual name="v_torso">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry><cylinder><radius>0.22</radius><length>1.3</length></cylinder></geometry>
+          <material><ambient>0.2 0.35 0.7 1</ambient><diffuse>0.3 0.45 0.85 1</diffuse></material>
+        </visual>
+        <visual name="v_head">
+          <pose>0 0 1.55 0 0 0</pose>
+          <geometry><sphere><radius>0.14</radius></sphere></geometry>
+          <material><ambient>0.8 0.6 0.5 1</ambient><diffuse>0.9 0.7 0.6 1</diffuse></material>
+        </visual>
+      </link>
+    </actor>
   </world>
 </sdf>

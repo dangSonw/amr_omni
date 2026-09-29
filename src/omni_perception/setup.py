@@ -13,6 +13,7 @@ setup(
         ('share/' + package_name + '/config', [
             'config/laser_filter.yaml',
             'config/depth_to_laser.yaml',
+            'config/camera_detection.yaml',
         ]),
         ('share/' + package_name + '/launch', [
             'launch/perception.launch.py',
@@ -24,5 +25,10 @@ setup(
     maintainer_email='maintainer@example.com',
     description='Perception package for AMR Omni including laser scan filtering and depth processing.',
     license='Apache-2.0',
+    entry_points={
+        'console_scripts': [
+            'camera_detector_node = omni_perception.camera_detector_node:main',
+        ],
+    },
 )
 

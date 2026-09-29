@@ -85,10 +85,10 @@ controller_server:
       CostCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 3.81
-        near_collision_cost: 253
-        critical_cost: 300.0
-        consider_footprint: false
+        cost_weight: 2.5
+        near_collision_cost: 220
+        critical_cost: 280.0
+        consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 0.1
         trajectory_point_step: 2
@@ -169,8 +169,8 @@ local_costmap:
           obstacle_min_range: 0.14
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 8.0
-        inflation_radius: 0.21
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.14
       always_send_full_costmap: false
 
 global_costmap:
@@ -204,8 +204,8 @@ global_costmap:
           obstacle_min_range: 0.14
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 7.5
-        inflation_radius: 0.22
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.15
       always_send_full_costmap: false
 
 behavior_server:

@@ -47,6 +47,7 @@ def generate_launch_description():
         'bt_navigator',
         'waypoint_follower',
         'velocity_smoother',
+        'collision_monitor',
     ]
 
     param_substitutions = {
@@ -108,8 +109,15 @@ def generate_launch_description():
                 parameters=[configured_params],
                 remappings=[
                     ('cmd_vel', 'cmd_vel_nav'),
-                    ('cmd_vel_smoothed', 'cmd_vel'),
+                    ('cmd_vel_smoothed', 'cmd_vel_smoothed'),
                 ],
+            ),
+            Node(
+                package='nav2_collision_monitor',
+                executable='collision_monitor',
+                name='collision_monitor',
+                output='screen',
+                parameters=[configured_params],
             ),
             Node(
                 package='nav2_lifecycle_manager',

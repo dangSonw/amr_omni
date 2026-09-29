@@ -14,6 +14,9 @@ WORLD_PRESETS = {
     'amr_lab': 'worlds/amr_lab.sdf',
     'outdoor': 'worlds/outdoor.sdf',
     'maze': 'worlds/maze.sdf',
+    'city_street': 'worlds/city_street.sdf',
+    'warehouse_logistics': 'worlds/warehouse_logistics.sdf',
+    'dynamic_traffic': 'worlds/dynamic_traffic.sdf',
 }
 
 

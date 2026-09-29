@@ -1,0 +1,157 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="warehouse_logistics">
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <gravity>0 0 -9.81</gravity>
+    <physics name="warehouse_physics" type="ode">
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>500</real_time_update_rate>
+    </physics>
+
+    <scene>
+      <ambient>0.55 0.55 0.58 1.0</ambient>
+      <background>0.3 0.35 0.4 1.0</background>
+      <shadows>true</shadows>
+      <grid>false</grid>
+    </scene>
+
+    <light name="bay_light_1" type="point">
+      <pose>5 5 8 0 0 0</pose>
+      <diffuse>0.9 0.9 0.85 1.0</diffuse>
+      <attenuation><range>25</range><constant>0.2</constant><linear>0.05</linear><quadratic>0.01</quadratic></attenuation>
+      <cast_shadows>true</cast_shadows>
+    </light>
+    <light name="bay_light_2" type="point">
+      <pose>15 5 8 0 0 0</pose>
+      <diffuse>0.9 0.9 0.85 1.0</diffuse>
+      <attenuation><range>25</range><constant>0.2</constant><linear>0.05</linear><quadratic>0.01</quadratic></attenuation>
+      <cast_shadows>true</cast_shadows>
+    </light>
+
+    <!-- Concrete Floor 40m x 30m -->
+    <model name="warehouse_floor">
+      <static>true</static>
+      <pose>12 10 0 0 0 0</pose>
+      <link name="floor_link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>45 35</size></plane></geometry>
+          <surface><friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode></friction></surface>
+        </collision>
+        <visual name="floor_visual">
+          <geometry><plane><normal>0 0 1</normal><size>45 35</size></plane></geometry>
+          <material>
+            <ambient>0.4 0.42 0.45 1</ambient>
+            <diffuse>0.55 0.58 0.62 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Outer Perimeter Safety Walls -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>12 25 2.0 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>45 0.3 4.0</size></box></geometry></collision><visual name="v"><geometry><box><size>45 0.3 4.0</size></box></geometry><material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material></visual></link>
+    </model>
+    <model name="wall_south">
+      <static>true</static>
+      <pose>12 -5 2.0 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>45 0.3 4.0</size></box></geometry></collision><visual name="v"><geometry><box><size>45 0.3 4.0</size></box></geometry><material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material></visual></link>
+    </model>
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-8 10 2.0 0 0 0</pose>
+      <link name="l"><collision name="c"><geometry><box><size>0.3 30 4.0</size></box></geometry></collision><visual name="v"><geometry><box><size>0.3 30 4.0</size></box></geometry><material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material></visual></link>
+    </model>
+
+    <!-- Pallet Rack Row 1 (Aisle Left) -->
+    <model name="rack_row_1a">
+      <static>true</static>
+      <pose>6 15 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>8.0 1.2 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>8.0 1.2 3.5</size></box></geometry><material><ambient>0.1 0.3 0.6 1</ambient><diffuse>0.2 0.45 0.8 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="rack_row_1b">
+      <static>true</static>
+      <pose>18 15 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>8.0 1.2 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>8.0 1.2 3.5</size></box></geometry><material><ambient>0.1 0.3 0.6 1</ambient><diffuse>0.2 0.45 0.8 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Pallet Rack Row 2 (Aisle Center) -->
+    <model name="rack_row_2a">
+      <static>true</static>
+      <pose>6 8 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>8.0 1.2 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>8.0 1.2 3.5</size></box></geometry><material><ambient>0.8 0.4 0.1 1</ambient><diffuse>0.9 0.5 0.15 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="rack_row_2b">
+      <static>true</static>
+      <pose>18 8 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>8.0 1.2 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>8.0 1.2 3.5</size></box></geometry><material><ambient>0.8 0.4 0.1 1</ambient><diffuse>0.9 0.5 0.15 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Cargo Pallets in Aisle (Obstacles for AMR to evade) -->
+    <model name="pallet_obstacle_1">
+      <static>true</static>
+      <pose>3 11.5 0.6 0 0 0.15</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>1.2 1.0 1.2</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.2 1.0 1.2</size></box></geometry><material><ambient>0.5 0.35 0.2 1</ambient><diffuse>0.65 0.45 0.25 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="pallet_obstacle_2">
+      <static>true</static>
+      <pose>12 11.5 0.5 0 0 -0.2</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>1.0 1.2 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.0 1.2 1.0</size></box></geometry><material><ambient>0.5 0.35 0.2 1</ambient><diffuse>0.65 0.45 0.25 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="pallet_obstacle_3">
+      <static>true</static>
+      <pose>14 4.0 0.7 0 0 0.05</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>1.4 1.2 1.4</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.4 1.2 1.4</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.4 0.4 0.4 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Staging & Storing Area Stacks -->
+    <model name="crate_stack">
+      <static>true</static>
+      <pose>-2 5 0.8 0 0 0</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>1.6 2.0 1.6</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.6 2.0 1.6</size></box></geometry><material><ambient>0.2 0.5 0.3 1</ambient><diffuse>0.25 0.65 0.35 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Charging Dock Station Marker -->
+    <model name="dock_station">
+      <static>true</static>
+      <pose>-6 0 0.4 0 0 0</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>0.6 0.8 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.6 0.8 0.8</size></box></geometry><material><ambient>0.9 0.7 0.1 1</ambient><diffuse>1.0 0.8 0.1 1</diffuse></material></visual>
+      </link>
+    </model>
+  </world>
+</sdf>

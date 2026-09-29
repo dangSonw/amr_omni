@@ -13,7 +13,7 @@ from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Bool, Float64, String
 from tf2_ros import TransformBroadcaster
 
-from omni_control.kinematics import (
+from omni_simulation.kinematics import (
     WHEEL_ORDER,
     forward_kinematics,
     inverse_kinematics,

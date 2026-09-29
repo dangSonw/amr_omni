@@ -123,7 +123,7 @@ run_sim() {
   local skip_build_check=false
   local launch_web=true
   local web_port=8000
-  local enable_slam=true
+  local enable_slam=false
   local enable_nav=true
   local enable_localization=true
   local enable_perception=true

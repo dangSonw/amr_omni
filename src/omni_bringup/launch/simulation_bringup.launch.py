@@ -172,7 +172,7 @@ def generate_launch_description():
                               description='Path to Python interpreter for web'),
         DeclareLaunchArgument('localization', default_value='true',
                               description='Launch EKF odometry fusion'),
-        DeclareLaunchArgument('slam', default_value='true',
+        DeclareLaunchArgument('slam', default_value='false',
                               description='Launch SLAM Toolbox for 2D mapping'),
         DeclareLaunchArgument('nav', default_value='true',
                               description='Launch Nav2 autonomous navigation stack'),

@@ -98,7 +98,23 @@ class SafetyZoneTest(unittest.TestCase):
         self.assertGreater(factor, 0.0)
         self.assertAlmostEqual(min_d, 0.16)
 
+    def test_narrow_doorway_flank_obstacle_passes(self):
+        # Robot is driving forward (vx=0.25, vy=0.0) through a 0.45m doorway.
+        # Door jamb on left is at 60 deg, distance 0.17m (lateral offset 0.147m > 0.135m).
+        # Without flank filtering, 0.17m (< slow_zone 0.28m, angle < 75 deg) would heavily brake.
+        # With flank filtering, the side door jamb does not stop the vehicle.
+        import math
+        beam_angle = math.radians(60.0)
+        ranges = [0.17, 2.0, 2.0]
+        stop, factor, min_d = evaluate_safety_zone(
+            ranges, angle_min=beam_angle, angle_increment=0.1,
+            vx=0.25, vy=0.0, slow_zone_m=0.28, stop_zone_m=0.15
+        )
+        self.assertFalse(stop)
+        self.assertEqual(factor, 1.0)
+
 
 if __name__ == '__main__':
     unittest.main()
+
 

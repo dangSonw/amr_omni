@@ -155,3 +155,43 @@ def test_grid_planner_probabilistic_outlier_filtering():
     assert len(planner.occupied_cells) > 0
 
 
+def test_narrow_gap_planning_and_mpc_traversal():
+    """Verify that a 0.45m doorway allows both A* path planning and MPC forward traversal."""
+    planner = GridMapPlanner()  # Default cell_size=0.08, inscribed_radius=0.14
+    # Create a 0.45m doorway at x=1.0:
+    # Wall 1: y >= 0.225
+    # Wall 2: y <= -0.225
+    for y_idx in range(3, 15):
+        planner.occupied_cells.add(planner.world_to_grid(1.0, y_idx * 0.08))
+        planner.occupied_cells.add(planner.world_to_grid(1.0, -y_idx * 0.08))
+    planner._rebuild_inflated_cells()
+
+    # Plan through doorway from (0.0, 0.0) to (2.0, 0.0)
+    path = planner.plan_path(0.0, 0.0, 2.0, 0.0)
+    assert len(path) >= 2, "A* must find a path through the 0.45m doorway"
+    assert path[-1] == [2.0, 0.0]
+
+    # Test OmniMpcController when entering the 0.45m doorway
+    controller = OmniMpcController()
+    # Left door jamb at (0.35, 0.225), right door jamb at (0.35, -0.225)
+    lidar_points = [
+        [0.35, 0.225],
+        [0.35, -0.225],
+        [0.40, 0.25],
+        [0.40, -0.25],
+    ]
+    vx, vy, wz, dist, traj = controller.compute(
+        current_x=0.0,
+        current_y=0.0,
+        current_theta=0.0,
+        target_path=path,
+        goal_x=2.0,
+        goal_y=0.0,
+        lidar_points=lidar_points,
+    )
+    # Robot must proceed forward into the doorway without stopping or locking
+    assert vx > 0.05, f"Robot must maintain forward crawl/drive speed into doorway: vx={vx}"
+    assert len(traj) > 0, "MPC must produce a valid rollout trajectory through the doorway"
+
+
+

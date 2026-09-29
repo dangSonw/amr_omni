@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 class GridMapPlanner:
     def __init__(
         self,
-        cell_size: float = 0.12,
-        inflation_radius: float = 0.55,
+        cell_size: float = 0.08,
+        inflation_radius: float = 0.35,
         max_scan_range: float = 12.0,
         min_scan_range: float = 0.15,
         max_obstacle_memory: int = 15000,
-        inscribed_radius: float = 0.24,
+        inscribed_radius: float = 0.14,
     ):
         self.cell_size = cell_size
         self.inscribed_radius = inscribed_radius
@@ -50,7 +50,7 @@ class GridMapPlanner:
                         is_insc = True
                     else:
                         alpha = (d_m - self.inscribed_radius) / (self.inflation_radius - self.inscribed_radius)
-                        cost = max(1, int(round(120.0 * ((1.0 - alpha) ** 2))))
+                        cost = max(1, int(round(80.0 * ((1.0 - alpha) ** 2))))
                         is_insc = False
                     self._inflation_offsets.append((dx, dy, cost, is_insc))
 
@@ -289,7 +289,6 @@ class GridMapPlanner:
         self.cell_hits.clear()
         self.inscribed_cells.clear()
         self.cell_costs.clear()
-        logger.info("Đã xóa bộ nhớ bản đồ lưới vật cản.")
 
     def get_obstacle_points(self, max_points: int = 1200) -> List[List[float]]:
         """Trả về danh sách tọa độ thế giới các vật cản để gửi lên Web hiển thị."""
@@ -615,7 +614,7 @@ class OmniMpcController:
         max_vx: float = 0.35,
         max_vy: float = 0.35,
         max_wz: float = 1.5,
-        robot_radius: float = 0.22,
+        robot_radius: float = 0.14,
     ):
         self.N = horizon_steps
         self.dt = dt
@@ -659,8 +658,8 @@ class OmniMpcController:
                 if d < min_obs_dist:
                     min_obs_dist = d
 
-                # Nón phía trước thân xe (-45° đến +45°)
-                if px > 0 and abs(py) < max(0.18, px * 0.9):
+                # Hành lang phía trước thân xe: chỉ xét vật cản trong luồng tiến rộng 27cm (±13.5cm)
+                if px > 0 and abs(py) < min(0.135, max(0.08, px * 0.35)):
                     if d < min_front_dist:
                         min_front_dist = d
 
@@ -738,30 +737,31 @@ class OmniMpcController:
         else:
             u_nom_x, u_nom_y = 0.0, 0.0
 
-        # Nếu phía trước có vật cản gần (< robot_radius + 0.12 = 0.34m):
+        # Nếu phía trước có vật cản gần (< robot_radius + 0.06 = 0.20m):
         # Chặn vận tốc tiến u_nom_x (tránh đâm), nhưng ưu tiên lách ngang u_nom_y qua khoảng trống
-        if min_front_dist < (self.robot_radius + 0.12):
+        if min_front_dist < (self.robot_radius + 0.06):
             u_nom_x = min(0.0, u_nom_x)
             # Nếu waypoint chưa kịp lệch ngang, chủ động tạo xung lách sang phía thoáng hơn
             if abs(u_nom_y) < 0.08:
                 strafe_dir = 1.0 if left_clearance >= right_clearance else -1.0
-                u_nom_y = 0.22 * strafe_dir
+                u_nom_y = 0.20 * strafe_dir
 
         angle_err = math.atan2(math.sin(nominal_heading - current_theta), math.cos(nominal_heading - current_theta))
         wz_nom = float(max(-self.max_wz, min(self.max_wz, 1.4 * angle_err)))
 
         # 5. Sinh tập hợp candidate control actions đa hướng (Holonomic Mecanum)
         cand_vx = {0.0}
-        # Nếu phía trước an toàn (>= 0.30m), cho phép tiến
-        if min_front_dist >= (self.robot_radius + 0.08):
+        # Nếu phía trước an toàn cho phép tiến
+        if min_front_dist >= (self.robot_radius + 0.03):
             if u_nom_x > 0:
                 cand_vx.add(min(self.max_vx, u_nom_x))
                 cand_vx.add(min(self.max_vx, u_nom_x * 0.6))
+                cand_vx.add(0.08)  # Crawl speed luồn khe hẹp
             else:
-                cand_vx.add(0.12)
+                cand_vx.add(0.10)
                 cand_vx.add(self.max_vx)
-        # Chỉ lùi khi robot bị kẹt vật lý ở cự ly nguy hiểm (< 16cm)
-        if min_obs_dist < (self.robot_radius - 0.06):
+        # Chỉ lùi khi robot bị kẹt vật lý ở cự ly nguy hiểm (< 10cm)
+        if min_obs_dist < (self.robot_radius - 0.04):
             cand_vx.add(-0.10)
 
         cand_vy = {
@@ -780,12 +780,12 @@ class OmniMpcController:
         best_trajectory: List[List[float]] = []
 
         # 6. Đánh giá quỹ đạo mô phỏng (MPC Horizon Rollout)
-        r_col_sq = (self.robot_radius + 0.03) ** 2
-        r_rep_sq = (self.robot_radius + 0.30) ** 2
+        r_col_sq = (self.robot_radius + 0.01) ** 2
+        r_rep_sq = (self.robot_radius + 0.16) ** 2
 
         for vx_c in cand_vx:
-            # Ngăn cản tuyệt đối vận tốc tiến nếu vật cản ngay trước mũi xe
-            if min_front_dist < (self.robot_radius + 0.08) and vx_c > 0.0:
+            # Ngăn cản vận tốc tiến nếu vật cản ngay sát trước mũi xe
+            if min_front_dist < (self.robot_radius + 0.02) and vx_c > 0.0:
                 continue
 
             for vy_c in cand_vy:
@@ -814,7 +814,7 @@ class OmniMpcController:
                                 break
                             elif d_sq < r_rep_sq:
                                 obs_dist = math.sqrt(d_sq)
-                                cost += 15.0 / max(0.01, (obs_dist - self.robot_radius) ** 2)
+                                cost += 3.0 / max(0.02, (obs_dist - self.robot_radius) ** 2)
 
                         if collision:
                             break

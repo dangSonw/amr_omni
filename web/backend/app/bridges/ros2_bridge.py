@@ -515,6 +515,7 @@ class Ros2Bridge(BaseRobotBridge):
             try:
                 if hasattr(self, "grid_planner") and self.grid_planner and pts:
                     with self._planner_lock:
+                        self.grid_planner.clear()
                         self.grid_planner.add_scan(x, y, theta, pts)
                         matched = getattr(self.grid_planner, "last_matched_pose", None)
                     if matched:
@@ -536,6 +537,8 @@ class Ros2Bridge(BaseRobotBridge):
         angle = msg.angle_min
         min_dist = float("inf")
 
+        max_scan_dist = float(min(10.0, msg.range_max if msg.range_max > 0 else 10.0))
+
         for r in msg.ranges:
             if math.isfinite(r) and msg.range_min <= r <= msg.range_max:
                 ranges.append(float(r))
@@ -545,7 +548,7 @@ class Ros2Bridge(BaseRobotBridge):
                 if r < min_dist:
                     min_dist = r
             else:
-                ranges.append(0.0)
+                ranges.append(max_scan_dist)
             angle += msg.angle_increment
 
         with self._data_lock:
@@ -1000,9 +1003,9 @@ class Ros2Bridge(BaseRobotBridge):
         vr_x = total_speed * math.cos(phi_move)
         vr_y = total_speed * math.sin(phi_move) * 0.3  # Giảm trôi ngang để xe chạy về phía trước
 
-        # Dừng khẩn cấp nếu vật cản quá sát trước mặt (< 22cm)
+        # Dừng khẩn cấp nếu vật cản nằm trực diện ngay sát trước mũi xe (< 14cm)
         for pt in cur_pts:
-            if 0 < pt[0] < 0.22 and abs(pt[1]) < 0.18:
+            if 0 < pt[0] < 0.14 and abs(pt[1]) < 0.135:
                 vr_x = min(0.0, vr_x)
 
         # Tính toán các điểm lộ trình né vật cản (Local Path) để vẽ lên Web Canvas

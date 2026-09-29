@@ -44,16 +44,6 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
   const robotY = odom?.y ?? 0.0;
   const robotTheta = odom?.theta_rad ?? 0.0;
 
-  useEffect(() => {
-    if (paths?.obstacles) {
-      const newMap = new Map<string, [number, number]>();
-      for (const [ox, oy] of paths.obstacles) {
-        const key = `${ox.toFixed(2)},${oy.toFixed(2)}`;
-        newMap.set(key, [ox, oy]);
-      }
-      persistentObstaclesRef.current = newMap;
-    }
-  }, [paths?.obstacles]);
 
   useEffect(() => {
     if (followRobot) {
@@ -190,96 +180,85 @@ export const MapNavigation: React.FC<MapNavigationProps> = ({
     ctx.lineTo(width * 2, cy);
     ctx.stroke();
 
-    // 2. Explored Free Space: Pure white corridors along traversed trajectory
-    if (trajectoryRef.current.length > 0) {
-      ctx.save();
-      ctx.strokeStyle = "#ffffff";
-      ctx.fillStyle = "#ffffff";
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.lineWidth = Math.max(16, 0.75 * mapScale);
-      ctx.beginPath();
-      trajectoryRef.current.forEach(([tx, ty], idx) => {
-        const px = cx + tx * mapScale;
-        const py = cy - ty * mapScale;
-        if (idx === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Explored circular area around current robot position
-    const currPx = cx + robotX * mapScale;
-    const currPy = cy - robotY * mapScale;
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(currPx, currPy, 0.55 * mapScale, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 3. Active LiDAR Scan Polygon: Free space clearing + soft tinted beam
+    // 2. Active LiDAR Scan: Full 360-Degree Sweep Polygon & Live Surroundings
     const cosR = Math.cos(robotTheta);
     const sinR = Math.sin(robotTheta);
+    const currPx = cx + robotX * mapScale;
+    const currPy = cy - robotY * mapScale;
 
-    if (lidar?.points && lidar.points.length > 2) {
-      // Calculate world coordinates and angles for all lidar points
-      const scanPoints = lidar.points.map(([lx, ly]) => {
+    const polygonVertices: { px: number; py: number }[] = [];
+    const liveObstaclePixels: { px: number; py: number }[] = [];
+
+    if (lidar?.ranges && lidar.ranges.length > 0) {
+      const numBeams = lidar.ranges.length;
+      const angleStep = lidar.angle_increment || (2 * Math.PI) / numBeams;
+      const angleStart = lidar.angle_min !== undefined ? lidar.angle_min : -Math.PI;
+      const maxDisplayDist = Math.min(10.0, lidar.range_max || 10.0);
+
+      for (let i = 0; i < numBeams; i++) {
+        const beamAngle = angleStart + i * angleStep;
+        const r = lidar.ranges[i];
+        const isObstacle = r > 0.08 && r < maxDisplayDist;
+        const dist = isObstacle ? r : maxDisplayDist;
+
+        const lx = dist * Math.cos(beamAngle);
+        const ly = dist * Math.sin(beamAngle);
+
         const wx = robotX + (cosR * lx - sinR * ly);
         const wy = robotY + (sinR * lx + cosR * ly);
         const px = cx + wx * mapScale;
         const py = cy - wy * mapScale;
-        const angle = Math.atan2(wy - robotY, wx - robotX);
-        return { px, py, angle };
-      });
 
-      // Sort points angularly to create a continuous polygon
-      scanPoints.sort((a, b) => a.angle - b.angle);
+        polygonVertices.push({ px, py });
 
-      // (a) Clear interior to pure white (free space explored by LiDAR)
-      ctx.save();
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.moveTo(currPx, currPy);
-      for (const pt of scanPoints) {
-        ctx.lineTo(pt.px, pt.py);
+        if (isObstacle) {
+          liveObstaclePixels.push({ px, py });
+        }
       }
-      ctx.closePath();
-      ctx.fill();
-
-      // (b) Subtle soft tint for active LiDAR beam field-of-view (per user request)
-      ctx.fillStyle = "rgba(111, 194, 255, 0.14)";
-      ctx.strokeStyle = "rgba(111, 194, 255, 0.4)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(currPx, currPy);
-      for (const pt of scanPoints) {
-        ctx.lineTo(pt.px, pt.py);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // 4. Walls & Obstacles: Deep Black solid points & segments (matching reference photo)
-    ctx.fillStyle = "#18181b";
-    if (persistentObstaclesRef.current.size > 0) {
-      persistentObstaclesRef.current.forEach(([ox, oy]) => {
-        const px = cx + ox * mapScale;
-        const py = cy - oy * mapScale;
-        ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
-      });
-    }
-
-    // Live LiDAR hits in solid black
-    if (lidar?.points && lidar.points.length > 0) {
+    } else if (lidar?.points && lidar.points.length > 0) {
       for (const [lx, ly] of lidar.points) {
         const wx = robotX + (cosR * lx - sinR * ly);
         const wy = robotY + (sinR * lx + cosR * ly);
         const px = cx + wx * mapScale;
         const py = cy - wy * mapScale;
-        ctx.fillRect(px - 2, py - 2, 4, 4);
+        liveObstaclePixels.push({ px, py });
+        polygonVertices.push({ px, py });
       }
+    }
+
+    if (polygonVertices.length > 2) {
+      // (a) Clear interior to pure white (free space currently visible by LiDAR)
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      polygonVertices.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt.px, pt.py);
+        else ctx.lineTo(pt.px, pt.py);
+      });
+      ctx.closePath();
+      ctx.fill();
+
+      // (b) Subtle soft tint for active LiDAR beam field-of-view
+      ctx.fillStyle = "rgba(111, 194, 255, 0.15)";
+      ctx.strokeStyle = "rgba(111, 194, 255, 0.45)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      polygonVertices.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt.px, pt.py);
+        else ctx.lineTo(pt.px, pt.py);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 3. Walls & Obstacles: ONLY Live LiDAR hits currently detected (No memory accumulation!)
+    if (liveObstaclePixels.length > 0) {
+      ctx.fillStyle = "#18181b";
+      liveObstaclePixels.forEach(({ px, py }) => {
+        ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+      });
     }
 
     // 5. Sleek Global Path: Precision micro-dash with nodes

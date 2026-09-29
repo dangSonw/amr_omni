@@ -42,23 +42,9 @@ def main():
         if os.path.isdir(p) and p not in sys.path:
             sys.path.append(p)
 
-    print(f"==================================================")
-    print(f"Khởi động AMR Omni Web Backend trên http://{args.host}:{args.port}")
-    print(f"Chế độ kết nối: {args.mode}")
+    print(f"[AMR Web Backend] Listening on http://{args.host}:{args.port} (mode: {args.mode})")
 
-    # Chẩn đoán rclpy
-    try:
-        import rclpy
-        print(f"rclpy khả dụng (ROS 2 {os.getenv('ROS_DISTRO', 'jazzy')})")
-    except ImportError as e:
-        if args.mode == "ros2":
-            print(f"Cảnh báo: rclpy không import được ({e}). Hãy đảm bảo đã source /opt/ros/jazzy/setup.bash")
-        else:
-            print(f"rclpy không khả dụng trong môi trường hiện tại.")
-
-    print(f"==================================================")
-
-    uvicorn.run("app.main:app", host=args.host, port=args.port, reload=args.reload)
+    uvicorn.run("app.main:app", host=args.host, port=args.port, reload=args.reload, log_level="warning", access_log=False)
 
 
 if __name__ == "__main__":

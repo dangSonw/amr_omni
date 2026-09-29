@@ -59,14 +59,7 @@ def generate_launch_description():
         missing_pkgs.append('ros-jazzy-laser-filters')
 
     if missing_pkgs:
-        print("\n" + "=" * 76)
-        print("[AMR OMNI NOTICE] Một số gói ROS 2 chưa được cài đặt trên hệ thống WSL2:")
-        for pkg in missing_pkgs:
-            print(f"  • {pkg}")
-        print("\nĐể kích hoạt đầy đủ các topic (/odometry/filtered, /map, /plan...),")
-        print("bạn hãy chạy lệnh sau trong terminal:")
-        print(f"  sudo apt update && sudo apt install -y {' '.join(missing_pkgs)}")
-        print("=" * 76 + "\n")
+        print(f"[AMR OMNI] Gói phụ thuộc chưa cài đặt: {', '.join(missing_pkgs)}")
 
     need_ekf = IfCondition(
         PythonExpression([

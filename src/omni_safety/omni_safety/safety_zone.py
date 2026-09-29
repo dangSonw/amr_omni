@@ -45,6 +45,11 @@ def evaluate_safety_zone(
             if not (in_motion_cone or in_immediate_bubble):
                 continue
 
+            # Bỏ qua vật cản hai bên sườn xe khi đang tiến qua khe hẹp
+            # (Góc lệch > 45° và khoảng cách ngang vượt quá nửa chiều rộng thân xe 0.135m)
+            if abs(angle_diff) > math.radians(45.0) and abs(r * math.sin(angle_diff)) > 0.135:
+                continue
+
         if r < min_dist:
             min_dist = r
 

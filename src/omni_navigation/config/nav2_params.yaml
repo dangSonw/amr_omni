@@ -169,8 +169,8 @@ local_costmap:
           obstacle_min_range: 0.14
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.14
+        cost_scaling_factor: 7.0
+        inflation_radius: 0.22
       always_send_full_costmap: false
 
 global_costmap:
@@ -204,8 +204,8 @@ global_costmap:
           obstacle_min_range: 0.14
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.15
+        cost_scaling_factor: 7.0
+        inflation_radius: 0.22
       always_send_full_costmap: false
 
 behavior_server:
@@ -275,18 +275,18 @@ collision_monitor:
       max_height: 0.5
       enabled: true
     PolygonStop:
-      type: "circle"
-      radius: 0.18
+      type: "polygon"
+      points: "[[0.135, 0.135], [0.135, -0.135], [-0.135, -0.135], [-0.135, 0.135]]"
       action_type: "stop"
-      max_points: 3
+      min_points: 3
       visualize: true
       polygon_pub_topic: "polygon_stop"
     PolygonSlow:
-      type: "circle"
-      radius: 0.35
+      type: "polygon"
+      points: "[[0.22, 0.16], [0.22, -0.16], [-0.16, -0.16], [-0.16, 0.16]]"
       action_type: "slowdown"
-      slowdown_ratio: 0.4
-      max_points: 3
+      slowdown_ratio: 0.5
+      min_points: 3
       visualize: true
       polygon_pub_topic: "polygon_slow"
 
